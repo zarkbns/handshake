@@ -90,7 +90,7 @@ Design locked. Contract implementation in progress. Evidence manifests and demo 
 
 ### Documentation
 
-- [Design Guide](./teamguide.md) — Full trust model, sequencing rules, reorg handling, and recovery semantics
+- [Design Guide](./GUIDE.md) — Full trust model, sequencing rules, reorg handling, and recovery semantics
 
 ---
 

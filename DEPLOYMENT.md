@@ -25,9 +25,10 @@ only release or refund after the corresponding coordinator state is reached.
    `ICommitStatus` adapter for that chain. The adapter must expose
    `isCommitted(settlementId)` only after observing a finalized Creditcoin
    `Committed` event through the approved cross-chain message path.
-6. Configure the application to derive the same settlement ID for both locks.
-   Approve the lock contract for the intended ERC-20 amount before calling
-   `lock`.
+6. Configure the application to derive the same settlement ID for both locks
+   using `SettlementId.derive` and the matching `scripts/settlement-id.js`
+   encoder. Approve the lock contract for the intended ERC-20 amount before
+   calling `lock`.
 
 The local test verifier in `test/MockAttestationVerifier.sol` is for tests only and
 must never be used on a public deployment.

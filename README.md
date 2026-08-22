@@ -94,6 +94,11 @@ commit-status adapters are also supplied by the source-chain deployment
 environment. See [Deployment](./DEPLOYMENT.md) for the required integration
 boundary and ordering rules.
 
+Settlement IDs are derived canonically from both chains, parties, token
+addresses, amounts, lock references, and expiry. The Solidity encoder is in
+`src/SettlementId.sol`; the matching Node.js helper is in
+`scripts/settlement-id.js`.
+
 ---
 
 ### Documentation

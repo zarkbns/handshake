@@ -1,0 +1,11 @@
+{
+  "name": "handshake-settlement",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "check:scripts": "node --check scripts/settlement-id.js"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0"
+  }
+}

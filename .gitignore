@@ -1,3 +1,4 @@
 cache/
 out/
 session-ses_*.md
+node_modules/

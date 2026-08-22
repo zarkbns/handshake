@@ -82,9 +82,16 @@ Settlement progresses only on verified external state.
 
 ### Status
 
-Active development — BUIDL CTC 2026 Fall.
+The Solidity coordinator MVP is implemented and test-covered locally. It provides
+the complete Creditcoin lifecycle, including verified per-leg preparation, the
+dual-PREPARE gate, bounded COMMIT, post-COMMIT settlement attestation, and
+attestor-independent HELD recovery.
 
-Design locked. Contract implementation in progress. Evidence manifests and demo flows under construction.
+The repository does not include a production Attestcoin verifier implementation:
+that adapter is supplied by the Creditcoin deployment environment. Native-chain
+lock and release contracts are also intentionally external to this non-custodial
+coordinator. See [Deployment](./DEPLOYMENT.md) for the required integration
+boundary and ordering rules.
 
 ---
 

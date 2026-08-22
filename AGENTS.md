@@ -35,6 +35,14 @@ Prefer Foundry for Solidity work unless the repo already standardizes on Hardhat
 
 ---
 
+Developer Resources:
+
+Chains and Environments: https://docs.creditcoin.org/creditcoin-usc/usc-chains-environments
+Guided Tutorials: https://docs.creditcoin.org/creditcoin-usc/guided-tutorials
+Attestcoin Protocol SDK: https://docs.creditcoin.org/creditcoin-usc/dapp-builder-infrastructure/usc-sdk
+
+---
+
 ## Non-Negotiable Rules
 
 **Always**

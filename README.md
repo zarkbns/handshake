@@ -99,6 +99,11 @@ addresses, amounts, lock references, and expiry. The Solidity encoder is in
 `src/SettlementId.sol`; the matching Node.js helper is in
 `scripts/settlement-id.js`.
 
+The initial operations layer is in `scripts/settlement-plan.js`,
+`scripts/coordinator-client.js`, and `scripts/relayer.js`. It validates plans,
+uses the ASC ABI, requires separate signers for both PREPARE legs, and supports
+retry-safe progression through proof submission, COMMIT, and HELD recovery.
+
 ---
 
 ### Documentation

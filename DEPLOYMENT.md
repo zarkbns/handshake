@@ -30,6 +30,13 @@ only release or refund after the corresponding coordinator state is reached.
    encoder. Approve the lock contract for the intended ERC-20 amount before
    calling `lock`.
 
+The repository includes dependency-injected Node modules for the operational
+boundary: `scripts/settlement-plan.js` validates and derives a plan,
+`scripts/coordinator-client.js` wraps the ASC ABI, and `scripts/relayer.js`
+drives both distinct prepare signers, proof submission, commit, and timeout
+recovery. These modules still require a production RPC provider, signer setup,
+Attestcoin proof producer, and source-chain commit-status adapter.
+
 The local test verifier in `test/MockAttestationVerifier.sol` is for tests only and
 must never be used on a public deployment.
 

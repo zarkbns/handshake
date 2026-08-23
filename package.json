@@ -3,7 +3,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "check:scripts": "node --check scripts/settlement-id.js"
+    "check:scripts": "node --check scripts/settlement-id.js && node --check scripts/settlement-plan.js && node --check scripts/coordinator-client.js && node --check scripts/relayer.js",
+    "test:scripts": "node test/scripts.test.js"
   },
   "dependencies": {
     "ethers": "^6.15.0"

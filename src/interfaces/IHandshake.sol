@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
 
 /// @title IHandshake - Cross-chain DvP settlement state machine (Creditcoin ASC).
 /// @notice Interface for the Handshake settlement coordinator built on the Attestcoin
@@ -63,15 +63,18 @@ interface IHandshake {
     /// @dev The manifest binds both prepare proofs and the attestation payload.
     function evidenceManifest(bytes32 id) external view returns (bytes32);
 
-    /// @notice Records the caller's side of settlement `id`, backed by an Attestcoin
-    ///         proof of their source-chain prepare/lock transaction.
-    /// @dev Drives NONE -> PREPARE (first valid prepare) and satisfies one half of
-    ///      the dual-PREPARE gate thereafter. Must remain non-custodial and
-    ///      reversible: no source-chain value moves irrevocably at this stage.
+    /// @notice Prepares the Attestcoin-proven leg (an Ethereum Sepolia lock).
+    /// @dev Drives NONE -> PREPARE and satisfies one half of the dual-PREPARE gate. The proof is
+    ///      an Attestcoin inclusion/continuity proof of the caller's source-chain lock event.
     /// @param id Unique settlement identifier.
-    /// @param proof ABI-encoded Attestcoin inclusion/continuity proof of the
-    ///        caller's source-chain prepare event.
-    function prepare(bytes32 id, bytes calldata proof) external;
+    /// @param proof ABI-encoded Attestcoin proof of the caller's source-chain lock event.
+    function prepareAttestedLeg(bytes32 id, bytes calldata proof) external;
+
+    /// @notice Prepares the Creditcoin-native leg, verified directly against the native lock state.
+    /// @dev No Attestcoin proof is required because the native lock lives on the coordinator's own
+    ///      chain. The caller must hold an active LOCKED position under `id`.
+    /// @param id Unique settlement identifier.
+    function prepareNativeLeg(bytes32 id) external;
 
     /// @notice Submits aggregated attestor attestations covering BOTH parties'
     ///         prepare events. On successful quorum verification the settlement

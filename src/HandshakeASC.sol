@@ -1,20 +1,31 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
 
 import {IHandshake} from "./interfaces/IHandshake.sol";
 import {IAttestationVerifier} from "./interfaces/IAttestationVerifier.sol";
+import {INativeSettlementLock} from "./interfaces/INativeSettlementLock.sol";
 
+/// @title HandshakeASC
+/// @notice Cross-chain DvP settlement coordinator on Creditcoin.
+/// @dev Two-leg settlement:
+///        - The attested leg is an Ethereum Sepolia lock proven through Attestcoin (`verifier`).
+///        - The native leg is a Creditcoin-native lock verified directly against `creditcoinLock`
+///          state (no Attestcoin proof needed for a lock on the coordinator's own chain).
+///      Both legs must be prepared by distinct parties before the settlement becomes READY.
+///      `commit` is the single irreversible boundary and executes only here on Creditcoin.
 contract HandshakeASC is IHandshake {
     struct Handshake {
         State state;
-        address initiator;
-        address counterparty;
+        address attestedParty;
+        address nativeParty;
         uint256 prepareTime;
         uint256 readyTime;
-        bytes32 leftCommit;
-        bytes32 rightCommit;
+        bytes32 attestedCommit;
+        bytes32 nativeCommit;
         bytes32 evidenceManifest;
         bytes32 settlementEvidence;
+        bool attestedPrepared;
+        bool nativePrepared;
     }
 
     uint256 public constant TIMEOUT = 1 hours;
@@ -31,12 +42,22 @@ contract HandshakeASC is IHandshake {
     error VerifierNotSet();
     error SettlementNotFound();
     error InvalidSettlementId();
+    error NativeLegNotLocked();
+    error LegAlreadyPrepared();
+    error PartiesMustDiffer();
 
     IAttestationVerifier public immutable verifier;
+    INativeSettlementLock public immutable creditcoinLock;
 
-    constructor(IAttestationVerifier verifier_) {
-        if (address(verifier_) == address(0)) revert VerifierNotSet();
+    /// @dev NativeSettlementLock.State.LOCKED == 1.
+    uint8 private constant NATIVE_STATE_LOCKED = 1;
+
+    constructor(IAttestationVerifier verifier_, INativeSettlementLock creditcoinLock_) {
+        if (address(verifier_) == address(0) || address(creditcoinLock_) == address(0)) {
+            revert VerifierNotSet();
+        }
         verifier = verifier_;
+        creditcoinLock = creditcoinLock_;
     }
 
     modifier onlyState(bytes32 id, State expected) {
@@ -45,74 +66,100 @@ contract HandshakeASC is IHandshake {
         _;
     }
 
-    function prepare(bytes32 id, bytes calldata proof) external {
+    function _touchPrepareWindow(Handshake storage handshake) private {
+        if (handshake.state == State.NONE) {
+            handshake.state = State.PREPARE;
+            handshake.prepareTime = block.timestamp;
+        } else if (handshake.state == State.PREPARE) {
+            if (block.timestamp >= handshake.prepareTime + TIMEOUT) revert PrepareWindowExpired();
+        } else {
+            revert InvalidState(handshake.state, State.PREPARE);
+        }
+    }
+
+    /// @notice Prepares the Ethereum Sepolia leg, proven through Attestcoin.
+    /// @param id Canonical settlement id.
+    /// @param proof ABI-encoded Attestcoin inclusion/continuity proof of the caller's source lock.
+    function prepareAttestedLeg(bytes32 id, bytes calldata proof) external {
         if (id == bytes32(0)) revert InvalidSettlementId();
         if (proof.length == 0) revert EmptyProof();
         Handshake storage handshake = handshakes[id];
+        if (handshake.attestedPrepared) revert LegAlreadyPrepared();
 
-        if (handshake.state == State.NONE) {
-            if (!verifier.verifyPrepareLeg(proof, id, msg.sender)) {
-                revert VerificationFailed();
-            }
-            handshake.state = State.PREPARE;
-            handshake.initiator = msg.sender;
-            handshake.prepareTime = block.timestamp;
-            handshake.leftCommit = keccak256(proof);
-        } else if (handshake.state == State.PREPARE) {
-            if (block.timestamp >= handshake.prepareTime + TIMEOUT) {
-                revert PrepareWindowExpired();
-            }
-            if (msg.sender == handshake.initiator) revert Unauthorized();
-            if (!verifier.verifyPrepareLeg(proof, id, msg.sender)) {
-                revert VerificationFailed();
-            }
-            handshake.rightCommit = keccak256(proof);
-            handshake.counterparty = msg.sender;
-            emit CounterpartyPrepared(id);
-            return;
-        } else {
-            revert InvalidState(handshake.state, State.NONE);
-        }
+        _touchPrepareWindow(handshake);
 
-        emit Prepared(id);
+        if (!verifier.verifyPrepareLeg(proof, id, msg.sender)) revert VerificationFailed();
+
+        handshake.attestedPrepared = true;
+        handshake.attestedParty = msg.sender;
+        handshake.attestedCommit = keccak256(proof);
+
+        _emitPrepareProgress(id, handshake);
     }
 
+    /// @notice Prepares the Creditcoin-native leg, verified directly against the native lock.
+    /// @dev The caller must have an active LOCKED position in `creditcoinLock` under this id. No
+    ///      Attestcoin proof is required because the lock lives on the coordinator's own chain.
+    /// @param id Canonical settlement id.
+    function prepareNativeLeg(bytes32 id) external {
+        if (id == bytes32(0)) revert InvalidSettlementId();
+        Handshake storage handshake = handshakes[id];
+        if (handshake.nativePrepared) revert LegAlreadyPrepared();
+
+        _touchPrepareWindow(handshake);
+
+        (uint8 state,, address depositor,,,) = creditcoinLock.locks(id);
+        if (state != NATIVE_STATE_LOCKED) revert NativeLegNotLocked();
+        if (depositor != msg.sender) revert Unauthorized();
+
+        handshake.nativePrepared = true;
+        handshake.nativeParty = msg.sender;
+        handshake.nativeCommit = keccak256(abi.encode("native-leg", id, depositor));
+
+        _emitPrepareProgress(id, handshake);
+    }
+
+    function _emitPrepareProgress(bytes32 id, Handshake storage handshake) private {
+        if (handshake.attestedPrepared && handshake.nativePrepared) {
+            if (handshake.attestedParty == handshake.nativeParty) revert PartiesMustDiffer();
+            emit CounterpartyPrepared(id);
+        } else {
+            emit Prepared(id);
+        }
+    }
+
+    /// @notice Confirms the dual-PREPARE gate and moves the settlement to READY.
+    /// @dev Both legs must be prepared by distinct parties. The attestation binds both prepare
+    ///      commitments to this settlement id.
     function submitProofs(bytes32 id, bytes calldata attestations)
         external
         onlyState(id, State.PREPARE)
     {
         Handshake storage handshake = handshakes[id];
-        if (handshake.rightCommit == bytes32(0)) revert Unauthorized();
-
+        if (!handshake.attestedPrepared || !handshake.nativePrepared) revert Unauthorized();
+        if (handshake.attestedParty == handshake.nativeParty) revert PartiesMustDiffer();
         if (attestations.length == 0) revert EmptyProof();
-        if (!verifier.verifyPrepare(attestations, id, handshake.leftCommit, handshake.rightCommit)) {
+
+        if (!verifier.verifyPrepare(attestations, id, handshake.attestedCommit, handshake.nativeCommit)) {
             revert VerificationFailed();
         }
         handshake.state = State.READY;
         handshake.readyTime = block.timestamp;
-
-        // Keep a stable audit reference without assuming the SDK's proof encoding.
         handshake.evidenceManifest = keccak256(
-            abi.encode(handshake.leftCommit, handshake.rightCommit, keccak256(attestations))
+            abi.encode(handshake.attestedCommit, handshake.nativeCommit, keccak256(attestations))
         );
         emit Ready(id);
     }
 
     function commit(bytes32 id) external onlyState(id, State.READY) {
         Handshake storage handshake = handshakes[id];
-        if (block.timestamp >= handshake.readyTime + TIMEOUT) {
-            revert CommitWindowExpired();
-        }
+        if (block.timestamp >= handshake.readyTime + TIMEOUT) revert CommitWindowExpired();
 
         handshake.state = State.COMMITTED;
-
         emit Committed(id);
     }
 
-    function settle(bytes32 id, bytes calldata attestation)
-        external
-        onlyState(id, State.COMMITTED)
-    {
+    function settle(bytes32 id, bytes calldata attestation) external onlyState(id, State.COMMITTED) {
         if (attestation.length == 0) revert EmptyProof();
         Handshake storage handshake = handshakes[id];
         if (!verifier.verifySettlement(attestation, id, handshake.evidenceManifest)) {
@@ -133,12 +180,9 @@ contract HandshakeASC is IHandshake {
         uint256 deadline = handshake.state == State.PREPARE
             ? handshake.prepareTime + TIMEOUT
             : handshake.readyTime + TIMEOUT;
-        if (block.timestamp < deadline) {
-            revert TimeoutNotReached();
-        }
+        if (block.timestamp < deadline) revert TimeoutNotReached();
 
         handshake.state = State.HELD;
-
         emit Held(id);
     }
 
@@ -150,9 +194,8 @@ contract HandshakeASC is IHandshake {
         return handshakes[id].state == State.COMMITTED || handshakes[id].state == State.SETTLED;
     }
 
-    /// @notice Returns the complete coordinator record for off-chain settlement UIs.
-    /// @dev Proof bytes are intentionally not stored; their hashes and the manifest
-    ///      provide stable evidence references without growing Creditcoin state.
+    /// @notice Returns the coordinator record for off-chain settlement UIs.
+    /// @dev `initiator` maps to the attested (Ethereum) party for interface compatibility.
     function getHandshake(bytes32 id)
         external
         view
@@ -170,11 +213,11 @@ contract HandshakeASC is IHandshake {
         Handshake storage handshake = handshakes[id];
         return (
             handshake.state,
-            handshake.initiator,
+            handshake.attestedParty,
             handshake.prepareTime,
             handshake.readyTime,
-            handshake.leftCommit,
-            handshake.rightCommit,
+            handshake.attestedCommit,
+            handshake.nativeCommit,
             handshake.evidenceManifest,
             handshake.settlementEvidence
         );

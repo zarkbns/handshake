@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
 
 /// @title SettlementId
 /// @notice Canonical replay-resistant identity for a two-leg Handshake trade.

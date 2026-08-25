@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
 
 /// @title ICommitStatus
 /// @notice Boundary used by a native-chain lock to authorize delivery.

@@ -2,3 +2,9 @@ cache/
 out/
 session-ses_*.md
 node_modules/
+lib/
+broadcast/
+.env
+.env.*
+!.env.example
+

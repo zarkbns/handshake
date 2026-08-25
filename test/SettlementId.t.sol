@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
 
 import {SettlementId} from "../src/SettlementId.sol";
 
@@ -38,7 +38,7 @@ contract SettlementIdTest {
         SettlementIdHarness harness = new SettlementIdHarness();
         bytes32 base = harness.derive(
             11155111,
-            84532,
+            102031,
             address(0xA11CE),
             address(0xB0B),
             address(0x100),
@@ -51,7 +51,7 @@ contract SettlementIdTest {
         );
         bytes32 changedAmount = harness.derive(
             11155111,
-            84532,
+            102031,
             address(0xA11CE),
             address(0xB0B),
             address(0x100),

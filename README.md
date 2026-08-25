@@ -34,8 +34,8 @@ Result: capital inefficiency and persistent settlement risk.
 
 Handshake elevates Creditcoin to settlement coordinator.
 
-- Asset leg and cash leg execute under native custody
-- Attestcoin supplies decentralized attestation + Merkle inclusion + continuity proofs
+- The Ethereum Sepolia asset leg and Creditcoin payment leg execute under native custody
+- Attestcoin supplies decentralized attestation + Merkle inclusion + continuity proofs for the Ethereum Sepolia lock
 - ASC on Creditcoin maintains the canonical state machine and enforces the irreversible `COMMIT`
 
 Settlement progresses only on verified external state.
@@ -55,9 +55,9 @@ Settlement progresses only on verified external state.
 
 ### State Machine
 
-1. `PREPARE` — Locks established on source chains  
-2. Proof submission — Inclusion + continuity proofs verified by ASC  
-3. `READY` — Dual-leg attestation confirmed  
+1. `PREPARE` — Locks established on Ethereum Sepolia and Creditcoin  
+2. Proof submission — The Ethereum inclusion + continuity proof and Creditcoin-native lock are verified  
+3. `READY` — Both settlement legs are confirmed  
 4. `COMMIT` — Irreversible settlement authorization on Creditcoin  
 5. Native finalization **or** timeout → `HELD` → unilateral unlock
 
@@ -67,7 +67,8 @@ Settlement progresses only on verified external state.
 
 | Component              | Responsibility                              |
 |------------------------|---------------------------------------------|
-| Source Chains          | Local locks / releases                      |
+| Ethereum Sepolia      | Attestcoin-proven asset lock / release      |
+| Creditcoin Testnet    | Native payment lock and settlement coordination |
 | Attestcoin Protocol    | Decentralized attestation + proof generation |
 | Creditcoin ASC         | Canonical state machine + COMMIT enforcement|
 | Handshake Contracts    | Business logic, timeouts, recovery paths    |
@@ -76,7 +77,8 @@ Settlement progresses only on verified external state.
 - Creditcoin + Attestcoin Protocol
 - Solidity (ASC)
 - Attestcoin / USC SDK
-- Initial source chains: Ethereum Sepolia, Base Sepolia
+- Initial networks: Creditcoin Testnet and Ethereum Sepolia
+- Attestcoin proves the Ethereum Sepolia leg; the Creditcoin leg is native to the coordinator network.
 
 ---
 

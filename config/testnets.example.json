@@ -2,20 +2,15 @@
   "creditcoin": {
     "chainId": 102031,
     "rpcUrlEnv": "CREDITCOIN_RPC_URL",
-    "coordinatorAddressEnv": "HANDSHAKE_ASC_ADDRESS"
+    "coordinatorAddressEnv": "HANDSHAKE_ASC_ADDRESS",
+    "nativeLockAddressEnv": "CREDITCOIN_LOCK_ADDRESS"
   },
-  "sourceChains": {
+  "attestedSourceChains": {
     "ethereumSepolia": {
       "chainId": 11155111,
       "rpcUrlEnv": "ETHEREUM_SEPOLIA_RPC_URL",
       "lockAddressEnv": "ETHEREUM_LOCK_ADDRESS",
       "finalityConfirmations": 12
-    },
-    "baseSepolia": {
-      "chainId": 84532,
-      "rpcUrlEnv": "BASE_SEPOLIA_RPC_URL",
-      "lockAddressEnv": "BASE_LOCK_ADDRESS",
-      "finalityConfirmations": 20
     }
   }
 }

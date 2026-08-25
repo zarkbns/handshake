@@ -4,7 +4,7 @@ const { ACTIONS, STATES, createRelayer } = require('../scripts/relayer');
 
 const plan = normalizePlan({
   leftChainId: 11155111,
-  rightChainId: 84532,
+  rightChainId: 102031,
   leftParty: '0x00000000000000000000000000000000000000a1',
   rightParty: '0x00000000000000000000000000000000000000b2',
   leftToken: '0x0000000000000000000000000000000000000101',

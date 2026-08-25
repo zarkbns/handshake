@@ -73,8 +73,8 @@ Result: capital inefficiency and persistent counterparty / infrastructure risk w
 
 Handshake makes Creditcoin the settlement coordinator.
 
-- Asset leg and cash leg execute on their original chains
-- Only verified facts (Prepared, Ready, Committed, Released, Held) are proven on Creditcoin using Attestcoin's decentralized attestors + Merkle inclusion proofs + continuity proofs
+- The asset leg executes on Ethereum Sepolia and the payment leg executes natively on Creditcoin Testnet
+- Attestcoin proves the Ethereum Sepolia lock using decentralized attestors, Merkle inclusion proofs, and continuity proofs; the Creditcoin-native lock is checked directly on Creditcoin
 - An Attestcoin Smart Contract (ASC) on Creditcoin drives the state machine and enforces the irreversible COMMIT point
 
 ---
@@ -173,10 +173,10 @@ Handshake is a cryptographically verifiable settlement coordination layer that r
 
 ## High-Level Flow
 
-1. Seller PREPAREs / locks asset on Chain A
-2. Buyer PREPAREs / locks cash on Chain B
-3. Inclusion + continuity proofs of both events are submitted to the ASC on Creditcoin
-4. ASC verifies proofs via Attestcoin → moves to READY
+1. Seller PREPAREs / locks the asset on Ethereum Sepolia
+2. Buyer PREPAREs / locks the payment on Creditcoin Testnet
+3. The Ethereum inclusion + continuity proof is submitted to the ASC on Creditcoin
+4. The ASC verifies the Ethereum proof through Attestcoin and checks the Creditcoin-native lock, then moves to READY
 5. Fresh verification window → irreversible COMMIT on Creditcoin
 6. Parties finalize delivery and release on native chains
 **or**
@@ -188,7 +188,7 @@ Timeout → HELD → unilateral refund path
 
 - Creditcoin: Attestcoin Smart Contracts (Solidity) + native query verifier precompile
 - Proofs: Official Attestcoin / USC SDK
-- Source chains: Start with Ethereum Sepolia + Base Sepolia
+- Initial networks: Creditcoin Testnet + Ethereum Sepolia. Attestcoin proves the Ethereum Sepolia leg; the Creditcoin leg is verified natively on Creditcoin.
 - Contract tooling: Foundry or Hardhat — whichever AGENTS.md's Project Profile
   currently records as decided. Don't re-decide it here.
 - State machine must enforce the irreversible COMMIT boundary and timeout paths described above

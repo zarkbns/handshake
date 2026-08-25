@@ -17,13 +17,9 @@ semantics — read this before touching settlement logic). Public overview:
 * **Project:** Handshake — cross-chain DvP settlement on Creditcoin via the Attestcoin Protocol
 * **Track:** DeFi, BUIDL CTC 2026 Fall
 * **Stack:** Solidity (ASC), Node.js (Attestcoin / USC SDK)
-* **Source chains (initial):** Ethereum Sepolia, Base Sepolia
+* **Initial settlement networks:** Creditcoin Testnet, Ethereum Sepolia
 * **State machine:** `PREPARE → READY → COMMIT → SETTLED | HELD`
-* **Contract tooling:** not yet decided. First agent to touch contracts:
-  check the repo for `foundry.toml` / `hardhat.config.*`, pick Foundry if
-  neither exists (faster iteration for a hackathon timeline), and replace
-  this line with the actual answer. Don't re-litigate it in later sessions —
-  read this line and move on.
+* **Contract tooling:** Foundry
 
 ---
 

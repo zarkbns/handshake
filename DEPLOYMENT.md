@@ -3,8 +3,8 @@
 ## Scope
 
 The coordinator deploys `HandshakeASC` on Creditcoin with an Attestcoin verifier
-adapter. Each source chain also deploys one `NativeSettlementLock` instance per
-supported ERC-20 settlement leg.
+adapter. Ethereum Sepolia deploys a `NativeSettlementLock` for the attested asset
+leg, and Creditcoin deploys a native lock for the payment leg.
 The contract is non-custodial: source-chain asset and cash locks remain on their
 native chains. The source-chain adapters must listen for the Creditcoin events and
 only release or refund after the corresponding coordinator state is reached.
@@ -21,11 +21,17 @@ only release or refund after the corresponding coordinator state is reached.
    same settlement-id derivation used by the application.
 4. Configure chain-specific finality buffers in the proof service before calling
    `submitProofs`.
-5. Deploy `NativeSettlementLock` on each source chain with the production
-   `ICommitStatus` adapter for that chain. The adapter must expose
-   `isCommitted(settlementId)` only after observing a finalized Creditcoin
-   `Committed` event through the approved cross-chain message path.
-6. Configure the application to derive the same settlement ID for both locks
+5. Deploy `NativeSettlementLock` on Ethereum Sepolia with an `OperatorCommitStatus`
+   adapter (`script/DeployEthereumLock.s.sol`). The operator observes a finalized
+   Creditcoin `Committed` event, waits the finality depth, and submits a signed
+   report via `scripts/commit-relay.js`; release is authorized only after the
+   commit delay elapses. This follows the official loan-flow worker pattern while
+   Attestcoin writability (Creditcoin -> source-chain messaging) is in development;
+   replace `OperatorCommitStatus` with a message-verified inbox once writability
+   ships. Never deploy a caller-controlled boolean status.
+6. Deploy the Creditcoin-native payment lock with direct access to the coordinator's
+   commit status (`CreditcoinCommitStatus`). Configure the application to derive the
+   same settlement ID for both locks
    using `SettlementId.derive` and the matching `scripts/settlement-id.js`
    encoder. Approve the lock contract for the intended ERC-20 amount before
    calling `lock`.

@@ -27,7 +27,8 @@ async function testRelayerOrdersDualPrepareBeforeProofsAndCommit() {
   const store = { get: async (id) => storeData.get(id), put: async (record) => storeData.set(record.id, record) };
   const client = (name) => ({
     state: async () => state,
-    prepare: async () => { calls.push(name + ACTIONS.PREPARE); state = STATES.PREPARE; return { hash: name }; },
+    prepareAttestedLeg: async () => { calls.push(name + 'prepareAttestedLeg'); state = STATES.PREPARE; return { hash: name }; },
+    prepareNativeLeg: async () => { calls.push(name + 'prepareNativeLeg'); state = STATES.PREPARE; return { hash: name }; },
     submitProofs: async () => { calls.push(ACTIONS.PROOFS); state = STATES.READY; return { hash: 'proofs' }; },
     commit: async () => { calls.push(ACTIONS.COMMIT); state = STATES.COMMITTED; return { hash: 'commit' }; },
     unlockHeld: async () => { calls.push(ACTIONS.HELD); state = STATES.HELD; return { hash: 'held' }; },
@@ -35,10 +36,10 @@ async function testRelayerOrdersDualPrepareBeforeProofsAndCommit() {
   const relayer = createRelayer({ leftCoordinator: client('left'), rightCoordinator: client('right'), store, clock: () => now });
 
   await relayer.run(plan);
-  assert.deepEqual(calls, ['leftprepare', 'rightprepare']);
+  assert.deepEqual(calls, ['leftprepareAttestedLeg', 'rightprepareNativeLeg']);
   await relayer.run(plan);
   await relayer.run(plan);
-  assert.deepEqual(calls, ['leftprepare', 'rightprepare', 'submitProofs', 'commit']);
+  assert.deepEqual(calls, ['leftprepareAttestedLeg', 'rightprepareNativeLeg', 'submitProofs', 'commit']);
 }
 
 async function testRelayerUsesHeldAfterExpiry() {

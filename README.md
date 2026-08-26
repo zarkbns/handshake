@@ -84,27 +84,44 @@ Settlement progresses only on verified external state.
 
 ### Status
 
-The Solidity coordinator and native-chain ERC-20 lock primitive are implemented
-and test-covered locally. The coordinator provides
-the complete Creditcoin lifecycle, including verified per-leg preparation, the
-dual-PREPARE gate, bounded COMMIT, post-COMMIT settlement attestation, and
-attestor-independent HELD recovery.
+The Solidity coordinator, the production Attestcoin verifier, and the native-chain
+ERC-20 lock primitive are implemented and covered by tests. The coordinator provides
+the complete Creditcoin lifecycle: verified per-leg preparation, the dual-PREPARE
+gate, bounded COMMIT, post-COMMIT settlement attestation, and attestor-independent
+HELD recovery.
 
-The repository does not include a production Attestcoin verifier implementation:
-that adapter is supplied by the Creditcoin deployment environment. Native-chain
-commit-status adapters are also supplied by the source-chain deployment
-environment. See [Deployment](./DEPLOYMENT.md) for the required integration
-boundary and ordering rules.
+**Deployed (public testnets):**
 
-Settlement IDs are derived canonically from both chains, parties, token
-addresses, amounts, lock references, and expiry. The Solidity encoder is in
-`src/SettlementId.sol`; the matching Node.js helper is in
-`scripts/settlement-id.js`.
+| Contract | Network | Address |
+|---|---|---|
+| `HandshakeASC` | Creditcoin Testnet | `0x905E0f141D8B5333F49755B08395d1beAdEd74Ab` |
+| `AttestcoinVerifier` | Creditcoin Testnet | `0xcB04133cEeD70bbb9692D528F21B7205838eAa13` |
+| `CreditcoinCommitStatus` | Creditcoin Testnet | `0x2002dcc1341707e7a6D6d5dC49EE7e610B9d4680` |
+| Creditcoin payment lock | Creditcoin Testnet | `0xb3e9cB40A52EF777A29b6198f4c2D8d19893a01D` |
+| `OperatorCommitStatus` | Ethereum Sepolia | `0xbD42128dFDd2B381fF416FffE8D699F840562067` |
+| Ethereum asset lock | Ethereum Sepolia | `0x999326d027316C6CD0156a39ac8d3792f2EFC802` |
 
-The initial operations layer is in `scripts/settlement-plan.js`,
-`scripts/coordinator-client.js`, and `scripts/relayer.js`. It validates plans,
-uses the ASC ABI, requires separate signers for both PREPARE legs, and supports
-retry-safe progression through proof submission, COMMIT, and HELD recovery.
+**Settlement ID API.** The coordinator is two-leg: `prepareAttestedLeg(id, proof)`
+(Ethereum leg, proven through Attestcoin) and `prepareNativeLeg(id)` (Creditcoin leg,
+verified directly against the native lock). `submitProofs` -> `READY`, `commit` ->
+`COMMITTED`, `settle` -> `SETTLED`, `unlockHeld` -> `HELD`.
+
+Settlement IDs are derived canonically from both chains, parties, token addresses,
+amounts, lock references, and expiry. The Solidity encoder is in `src/SettlementId.sol`;
+the matching Node.js helper is in `scripts/settlement-id.js`.
+
+The live demo tooling lives in `scripts/`:
+- `demo-lock.js` — derive a settlement id and lock both legs.
+- `demo-settle.js` — generate a real Attestcoin proof and drive
+  `PREPARE -> READY -> COMMIT`.
+- `demo-release.js` — deliver both legs after COMMIT and record `settle`.
+- `demo-refund.js` — demonstrate the unilateral HELD refund path.
+- `attestcoin-proof.js` — generate and verify a real Ethereum Sepolia proof via Attestcoin.
+
+**Frontend note (read-only dashboard):** the frontend should only read on-chain state and
+render it — poll the coordinator's `getHandshake(id)` and the two lock contracts. It should
+not drive settlement. See `scripts/coordinator-client.js` for the coordinator ABI and
+`config/testnets.example.json` for the RPC/address env vars.
 
 ---
 

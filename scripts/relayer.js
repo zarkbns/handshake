@@ -1,6 +1,6 @@
 const STATES = Object.freeze({ NONE: 0, PREPARE: 1, READY: 2, COMMITTED: 3, SETTLED: 4, HELD: 5 });
 
-const ACTIONS = Object.freeze({ PREPARE: 'prepare', PROOFS: 'submitProofs', COMMIT: 'commit', HELD: 'unlockHeld' });
+const ACTIONS = Object.freeze({ PREPARE: 'prepareAttestedLeg', PREPARE_NATIVE: 'prepareNativeLeg', PROOFS: 'submitProofs', COMMIT: 'commit', HELD: 'unlockHeld' });
 
 function createRelayer({ leftCoordinator, rightCoordinator, store, clock = () => Math.floor(Date.now() / 1000), logger = () => {} }) {
   if (!leftCoordinator || !rightCoordinator || !store) {
@@ -21,8 +21,8 @@ function createRelayer({ leftCoordinator, rightCoordinator, store, clock = () =>
       return execute(ACTIONS.HELD, id, record, leftCoordinator.unlockHeld);
     }
     if (state === STATES.NONE && plan.leftProof && plan.rightProof) {
-      const leftAction = await execute(ACTIONS.PREPARE, id, record, leftCoordinator.prepare, plan.leftProof);
-      const rightAction = await execute(ACTIONS.PREPARE, id, record, rightCoordinator.prepare, plan.rightProof);
+      const leftAction = await execute(ACTIONS.PREPARE, id, record, leftCoordinator.prepareAttestedLeg, plan.leftProof);
+      const rightAction = await execute(ACTIONS.PREPARE_NATIVE, id, record, rightCoordinator.prepareNativeLeg);
       return { leftAction, rightAction };
     }
     if (state === STATES.PREPARE && plan.attestations) {

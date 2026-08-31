@@ -3,7 +3,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "check:scripts": "node --check scripts/settlement-id.js && node --check scripts/settlement-plan.js && node --check scripts/coordinator-client.js && node --check scripts/relayer.js && node --check scripts/attestcoin-proof.js && node --check scripts/commit-relay.js && node --check scripts/demo-lock.js && node --check scripts/demo-settle.js && node --check scripts/demo-release.js && node --check scripts/demo-refund.js",
+    "check:scripts": "node --check scripts/settlement-id.js && node --check scripts/settlement-plan.js && node --check scripts/coordinator-client.js && node --check scripts/relayer.js && node --check scripts/attestcoin-proof.js && node --check scripts/commit-relay.js && node --check scripts/demo-lock.js && node --check scripts/demo-settle.js && node --check scripts/demo-release.js && node --check scripts/demo-refund.js && node --check scripts/demo-grief.js",
     "prove:ethereum": "node scripts/attestcoin-proof.js",
     "relay:commits": "node -e \"require('./scripts/commit-relay').createCommitRelay().relayFinalizedCommits().then(r=>{console.log(JSON.stringify(r,null,2))}).catch(e=>{console.error(e.message);process.exitCode=1})\"",
     "test:scripts": "node test/scripts.test.js"

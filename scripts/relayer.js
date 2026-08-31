@@ -1,6 +1,15 @@
 const STATES = Object.freeze({ NONE: 0, PREPARE: 1, READY: 2, COMMITTED: 3, SETTLED: 4, HELD: 5 });
 
-const ACTIONS = Object.freeze({ PREPARE: 'prepareAttestedLeg', PREPARE_NATIVE: 'prepareNativeLeg', PROOFS: 'submitProofs', COMMIT: 'commit', HELD: 'unlockHeld' });
+const ACTIONS = Object.freeze({ PREPARE: 'prepareAttestedLeg', PREPARE_NATIVE: 'prepareNativeLeg', PROOFS: 'submitProofs', COMMIT: 'commit', HELD: 'unlockHeld', WITHDRAW_BOND: 'withdrawBond' });
+
+// A settlement is terminal once it can no longer change on-chain state; the griefing bond, if any,
+// is resolved into pendingWithdrawals at COMMIT (full refund) or at unlockHeld (burn split / full
+// refund) and can then be pulled unilaterally, without any attestor involvement.
+const TERMINAL_STATES = new Set([STATES.COMMITTED, STATES.SETTLED, STATES.HELD]);
+
+function isTerminal(state) {
+  return TERMINAL_STATES.has(state);
+}
 
 function createRelayer({ leftCoordinator, rightCoordinator, store, clock = () => Math.floor(Date.now() / 1000), logger = () => {} }) {
   if (!leftCoordinator || !rightCoordinator || !store) {
@@ -12,8 +21,11 @@ function createRelayer({ leftCoordinator, rightCoordinator, store, clock = () =>
     const record = (await store.get(id)) || { id, attempts: {} };
     const state = await leftCoordinator.state(id);
 
-    if (state === STATES.HELD || state === STATES.COMMITTED || state === STATES.SETTLED) {
+    if (isTerminal(state)) {
       await store.put({ ...record, state });
+      // Once terminal, reclaim any bond credited to our parties. Idempotent and attestor-free:
+      // a zero balance is a no-op skip, so repeated relayer passes never double-withdraw.
+      await withdrawBondsIfAny(id, record);
       return state;
     }
 
@@ -34,6 +46,30 @@ function createRelayer({ leftCoordinator, rightCoordinator, store, clock = () =>
     return state;
   }
 
+  // Pulls each coordinator's bond back to its managed party after a terminal transition. Uses the
+  // coordinator's own signer address (contract.runner.address) so the left coordinator withdraws
+  // the attested party's bond and the right coordinator withdraws the native party's bond.
+  async function withdrawBondsIfAny(id, record) {
+    if (record.bondWithdrawn) return;
+    const results = [];
+    for (const coordinator of [leftCoordinator, rightCoordinator]) {
+      if (typeof coordinator.pendingWithdrawals !== 'function' || typeof coordinator.withdrawBond !== 'function') {
+        continue;
+      }
+      const account = coordinator.contract && coordinator.contract.runner && coordinator.contract.runner.address;
+      if (!account) continue;
+      const pending = await coordinator.pendingWithdrawals(account);
+      if (BigInt(pending) === 0n) continue;
+      const tx = await coordinator.withdrawBond();
+      logger({ id, action: ACTIONS.WITHDRAW_BOND, account, amount: pending.toString(), txHash: tx.hash || null });
+      results.push({ account, amount: pending.toString(), txHash: tx.hash || null });
+    }
+    if (results.length > 0) {
+      await store.put({ ...record, bondWithdrawn: true, bondWithdrawals: results });
+    }
+    return results;
+  }
+
   async function execute(action, id, record, method, ...args) {
     const attempts = (record.attempts[action] || 0) + 1;
     const next = { ...record, attempts, lastAction: action, updatedAt: clock() };
@@ -49,7 +85,7 @@ function createRelayer({ leftCoordinator, rightCoordinator, store, clock = () =>
     }
   }
 
-  return { run };
+  return { run, withdrawBondsIfAny };
 }
 
-module.exports = { ACTIONS, STATES, createRelayer };
+module.exports = { ACTIONS, STATES, isTerminal, createRelayer };

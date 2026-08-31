@@ -60,6 +60,9 @@ function createCoordinatorClient(signerOrProvider, address) {
     async unlockHeld(id) {
       return contract.unlockHeld(id);
     },
+    async pendingWithdrawals(account) {
+      return contract.pendingWithdrawals(account);
+    },
     async withdrawBond() {
       return contract.withdrawBond();
     },

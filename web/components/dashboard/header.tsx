@@ -1,8 +1,5 @@
-'use client'
-
 import { ChevronDown, Menu, X } from 'lucide-react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { Link, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 
 import { NAV_ITEMS, type NavItem } from '@/lib/handshake/navigation'
@@ -47,7 +44,7 @@ function NavGroup({ item, pathname }: { item: NavItem; pathname: string }) {
 
   if (!item.children) {
     return (
-      <Link className="ds-nav-link" href={item.href} data-active={active || undefined}>
+      <Link className="ds-nav-link" to={item.href} data-active={active || undefined}>
         {item.label}
       </Link>
     )
@@ -72,7 +69,7 @@ function NavGroup({ item, pathname }: { item: NavItem; pathname: string }) {
           {item.children.map((child) => (
             <Link
               key={child.href}
-              href={child.href}
+              to={child.href}
               role="menuitem"
               data-active={pathname === child.href.split('?')[0] || undefined}
               onClick={() => setOpen(false)}
@@ -87,7 +84,7 @@ function NavGroup({ item, pathname }: { item: NavItem; pathname: string }) {
 }
 
 export function DashboardHeader() {
-  const pathname = usePathname() ?? '/dashboard'
+  const pathname = useLocation().pathname ?? '/dashboard'
   const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => setMobileOpen(false), [pathname])
@@ -95,7 +92,7 @@ export function DashboardHeader() {
   return (
     <>
       <header className="ds-header">
-        <Link className="ds-brand" href="/dashboard">
+        <Link className="ds-brand" to="/dashboard">
           <span className="logo-mark">×</span> HANDSHAKE
         </Link>
 
@@ -140,7 +137,7 @@ export function DashboardHeader() {
               {(item.children ?? [{ label: 'Open', href: item.href }]).map((child) => (
                 <Link
                   key={child.href}
-                  href={child.href}
+                  to={child.href}
                   data-active={pathname === child.href.split('?')[0] || undefined}
                 >
                   {child.label}

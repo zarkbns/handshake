@@ -1,7 +1,5 @@
-'use client'
-
 import { ArrowRight } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useNavigate } from 'react-router-dom'
 
 import { formatDateTime, formatDuration, formatRelative } from '@/lib/handshake/format'
 import type { SettlementSummary } from '@/lib/handshake/types'
@@ -37,7 +35,7 @@ export function SettlementTable({
   rows: SettlementSummary[]
   timestampFormat?: 'absolute' | 'relative'
 }) {
-  const router = useRouter()
+  const navigate = useNavigate()
 
   /**
    * Sample rows have no bytes32 id, so they route by display reference. A chain
@@ -66,11 +64,11 @@ export function SettlementTable({
               data-clickable="true"
               tabIndex={0}
               role="link"
-              onClick={() => router.push(hrefFor(row))}
+              onClick={() => navigate(hrefFor(row))}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
-                  router.push(hrefFor(row))
+                  navigate(hrefFor(row))
                 }
               }}
             >

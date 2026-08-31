@@ -1,6 +1,4 @@
-'use client'
-
-import Link from 'next/link'
+import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
 import type { NavChild } from '@/lib/handshake/navigation'
@@ -12,7 +10,7 @@ export function LinkTabs({ tabs, activeHref }: { tabs: NavChild[]; activeHref: s
       {tabs.map((tab) => (
         <Link
           key={tab.href}
-          href={tab.href}
+          to={tab.href}
           className="ds-tab"
           data-active={tab.href === activeHref || undefined}
         >

@@ -80,7 +80,7 @@ check('reference lookup is labelled', byRef !== null && Boolean(byRef.notice))
 check('unknown reference resolves to null', (await settlementService.getByReference('STL-99999')) === null)
 
 // --- chain lookup guard -------------------------------------------------------
-// No NEXT_PUBLIC_* vars are set in this process, so the live path must refuse
+// No VITE_* vars are set in this process, so the live path must refuse
 // rather than silently fall back to sample data.
 let refused = false
 try {

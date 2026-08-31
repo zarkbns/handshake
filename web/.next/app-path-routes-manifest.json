@@ -1,0 +1,14 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/dashboard/analytics/page": "/dashboard/analytics",
+  "/dashboard/developers/api-keys/page": "/dashboard/developers/api-keys",
+  "/dashboard/developers/page": "/dashboard/developers",
+  "/dashboard/developers/sdk/page": "/dashboard/developers/sdk",
+  "/dashboard/developers/webhooks/page": "/dashboard/developers/webhooks",
+  "/dashboard/docs/page": "/dashboard/docs",
+  "/dashboard/page": "/dashboard",
+  "/dashboard/settlements/[id]/page": "/dashboard/settlements/[id]",
+  "/dashboard/settlements/page": "/dashboard/settlements",
+  "/page": "/"
+}

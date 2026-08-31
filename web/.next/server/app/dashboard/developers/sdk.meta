@@ -1,0 +1,36 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/dashboard/layout,_N_T_/dashboard/developers/layout,_N_T_/dashboard/developers/sdk/layout,_N_T_/dashboard/developers/sdk/page,_N_T_/dashboard/developers/sdk"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/dashboard/developers/sdk/__PAGE__"
+  ],
+  "prefetchHints": {
+    "hints": 64,
+    "slots": {
+      "children": {
+        "hints": 96,
+        "slots": {
+          "children": {
+            "hints": 96,
+            "slots": {
+              "children": {
+                "hints": 96,
+                "slots": {
+                  "children": {
+                    "hints": 160,
+                    "slots": null
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

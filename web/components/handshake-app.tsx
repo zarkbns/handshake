@@ -1,7 +1,5 @@
-'use client'
-
 import { ArrowUpRight, Eye, EyeOff, Menu, X } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 
 /**
@@ -121,7 +119,7 @@ function Landing({ setView }: { setView: (view: View) => void }) {
 }
 
 function Auth({ setView }: { setView: (view: View) => void }) {
-  const router = useRouter()
+  const navigate = useNavigate()
   const [mode, setMode] = useState<Mode>('login')
   const [show, setShow] = useState(false)
   const [sent, setSent] = useState(false)
@@ -148,7 +146,7 @@ function Auth({ setView }: { setView: (view: View) => void }) {
               // No auth service exists in this repository, so this does not
               // authenticate anything. It routes to the read-only operator
               // dashboard, which reads public chain state and needs no session.
-              router.push('/dashboard')
+              navigate('/dashboard')
             }}
           >
             <label>

@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///home/timothy/Documents/Coding/Websites/handshake/web/app/dashboard/developers/page.tsx"],"sourcesContent":["import { redirect } from 'next/navigation'\n\n/** Developers has no landing view of its own; API Keys is the default tab. */\nexport default function DevelopersIndexPage() {\n  redirect('/dashboard/developers/api-keys')\n}\n"],"names":["DevelopersIndexPage"],"mappings":";;;;AAAA;AAAA;;AAGe,SAASA;IACtB,IAAA,iMAAQ,EAAC;AACX"}}]
+}

@@ -1,0 +1,14 @@
+{
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/dashboard/analytics/page": "app/dashboard/analytics/page.js",
+  "/dashboard/developers/api-keys/page": "app/dashboard/developers/api-keys/page.js",
+  "/dashboard/developers/page": "app/dashboard/developers/page.js",
+  "/dashboard/developers/sdk/page": "app/dashboard/developers/sdk/page.js",
+  "/dashboard/developers/webhooks/page": "app/dashboard/developers/webhooks/page.js",
+  "/dashboard/docs/page": "app/dashboard/docs/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/dashboard/settlements/[id]/page": "app/dashboard/settlements/[id]/page.js",
+  "/dashboard/settlements/page": "app/dashboard/settlements/page.js",
+  "/page": "app/page.js"
+}

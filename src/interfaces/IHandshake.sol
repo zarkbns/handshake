@@ -59,6 +59,22 @@ interface IHandshake {
     /// @param id Settlement identifier.
     event Held(bytes32 indexed id);
 
+    /// @notice Emitted when a party posts its griefing-protection performance bond at PREPARE.
+    /// @param id Settlement identifier.
+    /// @param party The address that posted the bond.
+    /// @param amount Bond amount in wei of native CTC.
+    event BondPosted(bytes32 indexed id, address indexed party, uint256 amount);
+
+    /// @notice Emitted when bond balances are resolved on a terminal transition.
+    /// @param id Settlement identifier.
+    /// @param burned Total bond value burned as griefing penalty (0 on COMMIT / single-leg HELD).
+    event BondsResolved(bytes32 indexed id, uint256 burned);
+
+    /// @notice Emitted when a party withdraws its credited bond balance (pull payment).
+    /// @param party The address withdrawing.
+    /// @param amount Amount withdrawn in wei of native CTC.
+    event BondWithdrawn(address indexed party, uint256 amount);
+
     /// @notice Returns the hash of the evidence manifest accepted for `id`.
     /// @dev The manifest binds both prepare proofs and the attestation payload.
     function evidenceManifest(bytes32 id) external view returns (bytes32);
@@ -66,15 +82,17 @@ interface IHandshake {
     /// @notice Prepares the Attestcoin-proven leg (an Ethereum Sepolia lock).
     /// @dev Drives NONE -> PREPARE and satisfies one half of the dual-PREPARE gate. The proof is
     ///      an Attestcoin inclusion/continuity proof of the caller's source-chain lock event.
+    ///      The caller MUST attach exactly the configured griefing bond as `msg.value`.
     /// @param id Unique settlement identifier.
     /// @param proof ABI-encoded Attestcoin proof of the caller's source-chain lock event.
-    function prepareAttestedLeg(bytes32 id, bytes calldata proof) external;
+    function prepareAttestedLeg(bytes32 id, bytes calldata proof) external payable;
 
     /// @notice Prepares the Creditcoin-native leg, verified directly against the native lock state.
     /// @dev No Attestcoin proof is required because the native lock lives on the coordinator's own
-    ///      chain. The caller must hold an active LOCKED position under `id`.
+    ///      chain. The caller must hold an active LOCKED position under `id` and MUST attach exactly
+    ///      the configured griefing bond as `msg.value`.
     /// @param id Unique settlement identifier.
-    function prepareNativeLeg(bytes32 id) external;
+    function prepareNativeLeg(bytes32 id) external payable;
 
     /// @notice Submits aggregated attestor attestations covering BOTH parties'
     ///         prepare events. On successful quorum verification the settlement
@@ -105,6 +123,13 @@ interface IHandshake {
     ///      party remains locked indefinitely.
     /// @param id Unique settlement identifier.
     function unlockHeld(bytes32 id) external;
+
+    /// @notice Withdraws the caller's credited griefing-bond balance (pull payment).
+    /// @dev Bonds are credited on the terminal transition: COMMIT refunds both bonds in full;
+    ///      a dual-PREPARE HELD applies the configured burn split before crediting the remainder;
+    ///      a single-leg HELD refunds the honest first mover in full. MUST never require attestor
+    ///      cooperation, matching the refund-path invariant.
+    function withdrawBond() external;
 
     /// @notice Returns whether `id` has reached the irreversible COMMIT boundary.
     function isCommitted(bytes32 id) external view returns (bool);

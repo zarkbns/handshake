@@ -26,11 +26,37 @@ contract HandshakeASC is IHandshake {
         bytes32 settlementEvidence;
         bool attestedPrepared;
         bool nativePrepared;
+        // Griefing-protection performance bonds (native CTC on Creditcoin), posted at PREPARE.
+        uint256 attestedBond;
+        uint256 nativeBond;
     }
 
     uint256 public constant TIMEOUT = 1 hours;
 
+    /// @dev Basis-points denominator for the bond burn split.
+    uint256 public constant BPS_DENOMINATOR = 10_000;
+
+    /// @notice Performance bond each party must post when preparing its leg (in wei of native CTC).
+    /// @dev Configurable per deployment. Zero disables the bond entirely (prepares become non-payable
+    ///      in effect, since msg.value must equal this value). See griefing-protection notes below.
+    uint256 public immutable bondAmount;
+
+    /// @notice Fraction (in basis points) of each posted bond burned when a settlement that reached
+    ///         the dual-PREPARE gate still fails to COMMIT and falls to HELD.
+    /// @dev A no-show counterparty (single-leg PREPARE -> HELD) never triggers this: the honest
+    ///      first mover is refunded in full. The burn only bites parties that mutually locked each
+    ///      other into a stalled READY window, giving both real skin in the game to drive COMMIT.
+    uint256 public immutable bondBurnBps;
+
+    /// @notice Cumulative bond value burned (permanently locked, unwithdrawable) as griefing penalty.
+    uint256 public totalBurned;
+
     mapping(bytes32 => Handshake) public handshakes;
+
+    /// @notice Native-CTC bond balances credited back to parties, pull-payment style.
+    /// @dev Credited on the terminal transition (COMMIT refunds in full; HELD applies the burn
+    ///      split when the dual-PREPARE gate was reached). Withdrawn via {withdrawBond}.
+    mapping(address => uint256) public pendingWithdrawals;
 
     error InvalidState(State actual, State expected);
     error Unauthorized();
@@ -45,6 +71,10 @@ contract HandshakeASC is IHandshake {
     error NativeLegNotLocked();
     error LegAlreadyPrepared();
     error PartiesMustDiffer();
+    error IncorrectBond(uint256 expected, uint256 actual);
+    error InvalidBurnBps();
+    error NoBondToWithdraw();
+    error BondTransferFailed();
 
     IAttestationVerifier public immutable verifier;
     INativeSettlementLock public immutable creditcoinLock;
@@ -52,12 +82,20 @@ contract HandshakeASC is IHandshake {
     /// @dev NativeSettlementLock.State.LOCKED == 1.
     uint8 private constant NATIVE_STATE_LOCKED = 1;
 
-    constructor(IAttestationVerifier verifier_, INativeSettlementLock creditcoinLock_) {
+    constructor(
+        IAttestationVerifier verifier_,
+        INativeSettlementLock creditcoinLock_,
+        uint256 bondAmount_,
+        uint256 bondBurnBps_
+    ) {
         if (address(verifier_) == address(0) || address(creditcoinLock_) == address(0)) {
             revert VerifierNotSet();
         }
+        if (bondBurnBps_ > BPS_DENOMINATOR) revert InvalidBurnBps();
         verifier = verifier_;
         creditcoinLock = creditcoinLock_;
+        bondAmount = bondAmount_;
+        bondBurnBps = bondBurnBps_;
     }
 
     modifier onlyState(bytes32 id, State expected) {
@@ -80,9 +118,10 @@ contract HandshakeASC is IHandshake {
     /// @notice Prepares the Ethereum Sepolia leg, proven through Attestcoin.
     /// @param id Canonical settlement id.
     /// @param proof ABI-encoded Attestcoin inclusion/continuity proof of the caller's source lock.
-    function prepareAttestedLeg(bytes32 id, bytes calldata proof) external {
+    function prepareAttestedLeg(bytes32 id, bytes calldata proof) external payable {
         if (id == bytes32(0)) revert InvalidSettlementId();
         if (proof.length == 0) revert EmptyProof();
+        if (msg.value != bondAmount) revert IncorrectBond(bondAmount, msg.value);
         Handshake storage handshake = handshakes[id];
         if (handshake.attestedPrepared) revert LegAlreadyPrepared();
 
@@ -93,6 +132,8 @@ contract HandshakeASC is IHandshake {
         handshake.attestedPrepared = true;
         handshake.attestedParty = msg.sender;
         handshake.attestedCommit = keccak256(proof);
+        handshake.attestedBond = msg.value;
+        if (msg.value > 0) emit BondPosted(id, msg.sender, msg.value);
 
         _emitPrepareProgress(id, handshake);
     }
@@ -101,8 +142,9 @@ contract HandshakeASC is IHandshake {
     /// @dev The caller must have an active LOCKED position in `creditcoinLock` under this id. No
     ///      Attestcoin proof is required because the lock lives on the coordinator's own chain.
     /// @param id Canonical settlement id.
-    function prepareNativeLeg(bytes32 id) external {
+    function prepareNativeLeg(bytes32 id) external payable {
         if (id == bytes32(0)) revert InvalidSettlementId();
+        if (msg.value != bondAmount) revert IncorrectBond(bondAmount, msg.value);
         Handshake storage handshake = handshakes[id];
         if (handshake.nativePrepared) revert LegAlreadyPrepared();
 
@@ -115,6 +157,8 @@ contract HandshakeASC is IHandshake {
         handshake.nativePrepared = true;
         handshake.nativeParty = msg.sender;
         handshake.nativeCommit = keccak256(abi.encode("native-leg", id, depositor));
+        handshake.nativeBond = msg.value;
+        if (msg.value > 0) emit BondPosted(id, msg.sender, msg.value);
 
         _emitPrepareProgress(id, handshake);
     }
@@ -156,6 +200,8 @@ contract HandshakeASC is IHandshake {
         if (block.timestamp >= handshake.readyTime + TIMEOUT) revert CommitWindowExpired();
 
         handshake.state = State.COMMITTED;
+        // Both legs progressed to the irreversible boundary: refund both bonds in full.
+        _resolveBonds(id, handshake, false);
         emit Committed(id);
     }
 
@@ -182,8 +228,54 @@ contract HandshakeASC is IHandshake {
             : handshake.readyTime + TIMEOUT;
         if (block.timestamp < deadline) revert TimeoutNotReached();
 
+        // A settlement that reached the dual-PREPARE gate (both legs prepared) but stalled without
+        // COMMIT is the griefing case the bond punishes: apply the burn split. A single-leg PREPARE
+        // that simply timed out (counterparty never showed) refunds the honest first mover in full.
+        bool dualPrepareReached = handshake.attestedPrepared && handshake.nativePrepared;
         handshake.state = State.HELD;
+        _resolveBonds(id, handshake, dualPrepareReached);
         emit Held(id);
+    }
+
+    /// @dev Credits bond balances for pull-payment withdrawal. When `applyBurn` is true, a
+    ///      `bondBurnBps` fraction of each posted bond is permanently burned (added to
+    ///      `totalBurned` and never withdrawable); the remainder is credited back to each party.
+    ///      When false, both bonds are refunded in full. Zeroes the stored bonds so a settlement's
+    ///      bonds can only be resolved once.
+    function _resolveBonds(bytes32 id, Handshake storage handshake, bool applyBurn) private {
+        uint256 attestedBond = handshake.attestedBond;
+        uint256 nativeBond = handshake.nativeBond;
+        if (attestedBond == 0 && nativeBond == 0) {
+            emit BondsResolved(id, 0);
+            return;
+        }
+        handshake.attestedBond = 0;
+        handshake.nativeBond = 0;
+
+        uint256 burned;
+        if (applyBurn && bondBurnBps > 0) {
+            uint256 attestedBurn = (attestedBond * bondBurnBps) / BPS_DENOMINATOR;
+            uint256 nativeBurn = (nativeBond * bondBurnBps) / BPS_DENOMINATOR;
+            burned = attestedBurn + nativeBurn;
+            attestedBond -= attestedBurn;
+            nativeBond -= nativeBurn;
+        }
+
+        if (attestedBond > 0) pendingWithdrawals[handshake.attestedParty] += attestedBond;
+        if (nativeBond > 0) pendingWithdrawals[handshake.nativeParty] += nativeBond;
+        if (burned > 0) totalBurned += burned;
+
+        emit BondsResolved(id, burned);
+    }
+
+    /// @inheritdoc IHandshake
+    function withdrawBond() external {
+        uint256 amount = pendingWithdrawals[msg.sender];
+        if (amount == 0) revert NoBondToWithdraw();
+        pendingWithdrawals[msg.sender] = 0;
+        (bool ok,) = payable(msg.sender).call{value: amount}("");
+        if (!ok) revert BondTransferFailed();
+        emit BondWithdrawn(msg.sender, amount);
     }
 
     function evidenceManifest(bytes32 id) external view returns (bytes32) {

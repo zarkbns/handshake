@@ -6,11 +6,12 @@ const { proveEthereumSepoliaTransaction } = require('./attestcoin-proof');
 const coder = AbiCoder.defaultAbiCoder();
 
 const ASC_ABI = [
-  'function prepareAttestedLeg(bytes32 id, bytes proof)',
-  'function prepareNativeLeg(bytes32 id)',
+  'function prepareAttestedLeg(bytes32 id, bytes proof) payable',
+  'function prepareNativeLeg(bytes32 id) payable',
   'function submitProofs(bytes32 id, bytes attestations)',
   'function commit(bytes32 id)',
   'function settle(bytes32 id, bytes attestation)',
+  'function bondAmount() view returns (uint256)',
   'function isCommitted(bytes32 id) view returns (bool)',
   'function getHandshake(bytes32 id) view returns (uint8 state, address initiator, uint256 prepareTime, uint256 readyTime, bytes32 leftCommit, bytes32 rightCommit, bytes32 manifest, bytes32 settlementEvidence)',
 ];
@@ -64,6 +65,10 @@ async function main() {
   console.log('Settlement:', settlementId);
   console.log('Initial state:', STATE_NAMES[await state(ascSeller, settlementId)]);
 
+  // Griefing bond both parties must post at PREPARE (forfeited in part on a dual-PREPARE stall).
+  const bond = await ascSeller.bondAmount();
+  console.log('Required prepare bond (wei):', bond.toString());
+
   // 1. Generate + verify the real Attestcoin proof, then encode it for on-chain verification.
   console.log('\n[1/5] Generating Attestcoin proof for the Ethereum asset lock...');
   const proof = await proveEthereumSepoliaTransaction({ transactionHash: assetTxHash });
@@ -72,12 +77,12 @@ async function main() {
 
   // 2. Prepare the attested (Ethereum) leg as the seller.
   console.log('\n[2/5] prepareAttestedLeg (seller)...');
-  await (await ascSeller.prepareAttestedLeg(settlementId, legProof)).wait();
+  await (await ascSeller.prepareAttestedLeg(settlementId, legProof, { value: bond })).wait();
   console.log('      state:', STATE_NAMES[await state(ascSeller, settlementId)]);
 
   // 3. Prepare the native (Creditcoin) leg as the buyer.
   console.log('\n[3/5] prepareNativeLeg (buyer)...');
-  await (await ascBuyer.prepareNativeLeg(settlementId)).wait();
+  await (await ascBuyer.prepareNativeLeg(settlementId, { value: bond })).wait();
   console.log('      state:', STATE_NAMES[await state(ascSeller, settlementId)]);
 
   // 4. submitProofs -> READY. The aggregate attestation binds both prepare commitments.

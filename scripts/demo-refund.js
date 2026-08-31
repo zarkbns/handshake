@@ -16,8 +16,11 @@ const LOCK_ABI = [
 ];
 
 const ASC_ABI = [
-  'function prepareNativeLeg(bytes32 id)',
+  'function prepareNativeLeg(bytes32 id) payable',
   'function unlockHeld(bytes32 id)',
+  'function withdrawBond()',
+  'function bondAmount() view returns (uint256)',
+  'function pendingWithdrawals(address) view returns (uint256)',
   'function isCommitted(bytes32 id) view returns (bool)',
   'function getHandshake(bytes32 id) view returns (uint8 state, address initiator, uint256 prepareTime, uint256 readyTime, bytes32 leftCommit, bytes32 rightCommit, bytes32 manifest, bytes32 settlementEvidence)',
 ];
@@ -80,7 +83,8 @@ async function main() {
 
   // 2. Register the native leg on the coordinator (settlement is now waiting on the missing leg).
   console.log('\n[2/5] prepareNativeLeg (coordinator enters PREPARE)...');
-  await (await asc.prepareNativeLeg(settlementId)).wait();
+  const bond = await asc.bondAmount();
+  await (await asc.prepareNativeLeg(settlementId, { value: bond })).wait();
   console.log('      Coordinator state:', STATE_NAMES[Number((await asc.getHandshake(settlementId)).state)]);
   console.log('      isCommitted:', await asc.isCommitted(settlementId), '(never commits - counterparty absent)');
 
@@ -108,6 +112,24 @@ async function main() {
   console.log('\n=== HELD refund complete. Funds recovered:', recovered, '===');
   console.log('Note: coordinator unlockHeld() becomes callable after its 1h prepare timeout;');
   console.log('the fund-returning refund above required no attestor, no COMMIT, and no counterparty.');
+
+  // 6. Reclaim the griefing bond. This is a single-leg PREPARE that timed out with no counterparty,
+  //    so the honest first mover is refunded in full (nothing burned). This still needs no attestor.
+  console.log('\n[bonus] Reclaiming the prepare bond after unlockHeld (unilateral)...');
+  const record = await asc.getHandshake(settlementId);
+  if (Number(record.state) === 1 || Number(record.state) === 2) {
+    // Not yet HELD on the coordinator (its 1h timeout hasn't elapsed in this short demo). Skip.
+    console.log('      Coordinator still within its prepare window; run unlockHeld() after the 1h');
+    console.log('      timeout to release the bond. Lock refund above already returned the principal.');
+  } else {
+    const pending = await asc.pendingWithdrawals(buyer.address);
+    if (pending > 0n) {
+      await (await asc.withdrawBond()).wait();
+      console.log('      Bond reclaimed in full (wei):', pending.toString());
+    } else {
+      console.log('      No bond pending for buyer (already withdrawn).');
+    }
+  }
 }
 
 main().catch((e) => {

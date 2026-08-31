@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 
+import { ConnectPage } from './pages/ConnectPage'
 import { DashboardLayout } from './pages/DashboardLayout'
 import { DevelopersLayout } from './pages/DevelopersLayout'
 import { ApiKeysPage } from './pages/ApiKeysPage'
@@ -16,6 +17,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/connect" element={<ConnectPage />} />
 
       <Route path="/dashboard" element={<DashboardLayout />}>
         <Route index element={<OverviewPage />} />

@@ -93,7 +93,7 @@ export function DashboardHeader() {
     <>
       <header className="ds-header">
         <Link className="ds-brand" to="/dashboard">
-          <span className="logo-mark">×</span> HANDSHAKE
+          HANDSHAKE
         </Link>
 
         <nav className="ds-nav" aria-label="Dashboard">

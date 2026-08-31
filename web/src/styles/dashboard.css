@@ -329,7 +329,7 @@
   margin: 12px 0 0;
   max-width: 46ch;
   color: var(--ds-text-secondary);
-  font: 11px/1.6 Arial, sans-serif;
+  font: 11px/1.6 'Plus Jakarta Sans', sans-serif;
 }
 
 /* ---------------------------------------------------------------- buttons */
@@ -1137,7 +1137,7 @@
 .ds-error h3 {
   margin: 0;
   color: var(--ds-text);
-  font: 400 15px Arial, sans-serif;
+  font: 400 15px 'Plus Jakarta Sans', sans-serif;
   letter-spacing: -0.02em;
 }
 

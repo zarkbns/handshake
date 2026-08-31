@@ -36,6 +36,10 @@ contract DeployCreditcoin is Script {
         address ethereumLock = vm.envAddress("ETHEREUM_LOCK_ADDRESS");
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
+        // Griefing bond config. Defaults keep the demo cheap while still giving both parties skin
+        // in the game: 0.01 CTC bond, 50% of a dual-PREPARE stall burned (rest refunded).
+        uint256 bondAmount = vm.envOr("HANDSHAKE_BOND_AMOUNT_WEI", uint256(0.01 ether));
+        uint256 bondBurnBps = vm.envOr("HANDSHAKE_BOND_BURN_BPS", uint256(5000));
 
         vm.startBroadcast(deployerKey);
         uint64 nonce = vm.getNonce(deployer);
@@ -45,7 +49,9 @@ contract DeployCreditcoin is Script {
         verifier = new AttestcoinVerifier(chainKey, ethereumLock);
         coordinator = new HandshakeASC(
             IAttestationVerifier(address(verifier)),
-            INativeSettlementLock(predictedLock)
+            INativeSettlementLock(predictedLock),
+            bondAmount,
+            bondBurnBps
         );
         commitStatus = new CreditcoinCommitStatus(IHandshake(address(coordinator)));
         paymentLock = new NativeSettlementLock(ICommitStatus(address(commitStatus)));

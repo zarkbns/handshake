@@ -1,16 +1,48 @@
 import { useState } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { BrowserProvider } from 'ethers'
 
 import { Logo } from '@/components/handshake-app'
 
-type Mode = 'login' | 'signup'
-
 export function ConnectPage() {
   const navigate = useNavigate()
-  const [mode, setMode] = useState<Mode>('login')
-  const [show, setShow] = useState(false)
-  const [sent, setSent] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const [addr, setAddr] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+
+  async function connect() {
+    setPending(true)
+    setError('')
+    try {
+      const ethereum = window.ethereum
+      if (!ethereum) {
+        setError('No wallet detected. Install MetaMask or another Web3 wallet to continue.')
+        return
+      }
+      const provider = new BrowserProvider(ethereum)
+      const signer = await provider.getSigner()
+      setAddr(await signer.getAddress())
+      setConnected(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not connect to your wallet.')
+      return
+    } finally {
+      setPending(false)
+    }
+  }
+
+  function disconnect() {
+    setConnected(false)
+    setAddr('')
+    setError('')
+  }
+
+  function proceed() {
+    navigate('/dashboard')
+  }
+
+  const short = (a: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '')
 
   return (
     <main className="auth-page">
@@ -22,52 +54,51 @@ export function ConnectPage() {
         <span>Cross-chain DvP settlement on Creditcoin.</span>
       </div>
       <section className="auth-panel">
-        <button className="create-link" onClick={() => setMode('signup')}>
-          Create an account
-        </button>
         <div className="auth-form">
-          <h1>{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              setSent(true)
-              navigate('/dashboard')
-            }}
-          >
-            <label>
-              Email
-              <input required type="email" placeholder="ops@protocol.xyz" />
-            </label>
-            <label>
-              Password
-              <span className="password-input">
-                <input
-                  required
-                  minLength={6}
-                  type={show ? 'text' : 'password'}
-                  placeholder="••••••••••"
-                />
-                <button type="button" aria-label="Toggle password" onClick={() => setShow(!show)}>
-                  {show ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </span>
-            </label>
-            <div className="form-meta">
-              <label className="remember">
-                <input type="checkbox" /> Remember me
-              </label>
-              <button type="button">Forgot?</button>
-            </div>
-            <button className="sign-button" type="submit">
-              {sent ? '...' : mode === 'login' ? 'SIGN IN' : 'CREATE'}
-            </button>
-          </form>
-          <button
-            className="switch-mode"
-            onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
-          >
-            {mode === 'login' ? 'Need an account? Create one' : 'Already have an account? Sign in'}
-          </button>
+          <h1>{connected ? 'Connected' : 'Sign in'}</h1>
+          {!connected ? (
+<>
+              <button
+                className="connect-button"
+                type="button"
+                onClick={connect}
+                disabled={pending}
+              >
+                {pending ? '…' : 'Connect EVM Wallet'}
+              </button>
+              <div className="wallet-status">
+                <p className="wallet-hint">
+                  Handshake keeps assets under native custody. Connect a wallet to
+                  authenticate your operator account — no passwords, no keys left on a server.
+                </p>
+                {error && <p className="wallet-hint" style={{ color: '#f88' }}>{error}</p>}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="wallet-status">
+                <div className="wallet-row">
+                  <span>Account</span>
+                  <span className="wallet-address">{short(addr)}</span>
+                </div>
+                <div className="wallet-row">
+                  <span>Network</span>
+                  <span className="wallet-address">Creditcoin / ETH</span>
+                </div>
+                <p className="wallet-hint">
+                  Signed in with {addr}. Assets stay in your custody on their native chains.
+                </p>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button className="ghost-button" type="button" onClick={disconnect}>
+                    Disconnect
+                  </button>
+                  <button className="sign-button" type="button" onClick={proceed} style={{ marginTop: 0 }}>
+                    ENTER
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </section>
     </main>

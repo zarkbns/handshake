@@ -2,7 +2,7 @@
  * Handshake dashboard layer.
  *
  * Extends the tokens already established by the landing and auth screens in
- * globals.css — same panel background, same Courier New mono voice, same hairline
+ * globals.css — same panel background, same Plus Jakarta Sans voice, same hairline
  * borders, same square corners, same restrained monochrome. Nothing here
  * overrides a landing/auth rule; the two layers are additive.
  */
@@ -40,7 +40,7 @@
   --ds-danger: #b5716b;
   --ds-danger-bg: rgba(181, 113, 107, 0.1);
 
-  --ds-mono: 'Courier New', monospace;
+  --ds-mono: 'Plus Jakarta Sans', sans-serif;
   --ds-shell-max: 1200px;
 }
 

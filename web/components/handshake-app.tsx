@@ -1,10 +1,10 @@
 import { ArrowUpRight, Eye, EyeOff, Menu, X } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { CREDITCOIN, ETHEREUM_SEPOLIA } from '@/lib/handshake/chains'
 
-function Logo() {
+export function Logo() {
   return (
     <span className="flex items-center gap-2 font-mono text-[10px] font-bold tracking-[-.03em]">
       HANDSHAKE
@@ -12,13 +12,14 @@ function Logo() {
   )
 }
 
-function Landing({ setView }: { setView: (view: View) => void }) {
+export function Landing() {
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
 
   return (
     <main className="reference-shell">
       <header className="reference-header">
-        <button onClick={() => setView('landing')}>
+        <button onClick={() => navigate('/')}>
           <Logo />
         </button>
         <nav className="reference-nav">
@@ -27,7 +28,7 @@ function Landing({ setView }: { setView: (view: View) => void }) {
           <a href="#how-it-works">HOW IT WORKS</a>
           <a href="#trust">TRUST MODEL</a>
           <a href="#settlement">SETTLEMENT</a>
-          <a href="/connect">CONNECT</a>
+          <button onClick={() => navigate('/connect')} className="connect-nav">CONNECT</button>
         </nav>
         <button
           className="mobile-menu"
@@ -42,7 +43,7 @@ function Landing({ setView }: { setView: (view: View) => void }) {
             <a href="#how-it-works">HOW IT WORKS</a>
             <a href="#trust">TRUST MODEL</a>
             <a href="#settlement">SETTLEMENT</a>
-            <a href="/connect">CONNECT</a>
+            <button onClick={() => navigate('/connect')} className="connect-nav">CONNECT</button>
           </nav>
         )}
       </header>
@@ -58,7 +59,7 @@ function Landing({ setView }: { setView: (view: View) => void }) {
             a bridge
           </h1>
           <div className="hero-actions">
-            <button onClick={() => setView('auth')} className="talk-button">
+            <button onClick={() => navigate('/connect')} className="talk-button">
               <span>■</span> GET STARTED <ArrowUpRight size={14} />
             </button>
             <span className="email-label">
@@ -274,84 +275,6 @@ function Landing({ setView }: { setView: (view: View) => void }) {
   )
 }
 
-type View = 'landing' | 'auth'
-type Mode = 'login' | 'signup'
-
-function Auth({ setView }: { setView: (view: View) => void }) {
-  const navigate = useNavigate()
-  const [mode, setMode] = useState<Mode>('login')
-  const [show, setShow] = useState(false)
-  const [sent, setSent] = useState(false)
-
-  return (
-    <main className="auth-page">
-      <div className="auth-side">
-        <button onClick={() => setView('landing')}>
-          <Logo />
-        </button>
-        <div className="auth-cross">×</div>
-        <span>Cross-chain DvP settlement on Creditcoin.</span>
-      </div>
-      <section className="auth-panel">
-        <button className="create-link" onClick={() => setMode('signup')}>
-          Create an account
-        </button>
-        <div className="auth-form">
-          <h1>{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              setSent(true)
-              navigate('/dashboard')
-            }}
-          >
-            <label>
-              Email
-              <input required type="email" placeholder="ops@protocol.xyz" />
-            </label>
-            <label>
-              Password
-              <span className="password-input">
-                <input
-                  required
-                  minLength={6}
-                  type={show ? 'text' : 'password'}
-                  placeholder="••••••••••"
-                />
-                <button
-                  type="button"
-                  aria-label="Toggle password"
-                  onClick={() => setShow(!show)}
-                >
-                  {show ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </span>
-            </label>
-            <div className="form-meta">
-              <label className="remember">
-                <input type="checkbox" /> Remember me
-              </label>
-              <button type="button">Forgot?</button>
-            </div>
-            <button className="sign-button" type="submit">
-              {sent ? '...' : mode === 'login' ? 'SIGN IN' : 'CREATE'}
-            </button>
-          </form>
-          <button
-            className="switch-mode"
-            onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
-          >
-            {mode === 'login'
-              ? 'Need an account? Create one'
-              : 'Already have an account? Sign in'}
-          </button>
-        </div>
-      </section>
-    </main>
-  )
-}
-
 export function HandshakeApp() {
-  const [view, setView] = useState<View>('landing')
-  return view === 'landing' ? <Landing setView={setView} /> : <Auth setView={setView} />
+  return <Landing />
 }

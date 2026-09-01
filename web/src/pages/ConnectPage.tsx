@@ -1,180 +1,73 @@
-import { ArrowUpRight, Mail } from 'lucide-react'
+import { useState } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
-const COMMUNITIES = [
-  {
-    label: 'GitHub',
-    href: 'https://github.com/attestcoin/handshake',
-    icon: '⌘',
-    description: 'Source code, issues, and protocol specifications.',
-  },
-  {
-    label: 'Twitter / X',
-    href: 'https://x.com/attestcoin',
-    icon: '✕',
-    description: 'Announcements, updates, and protocol discussions.',
-  },
-  {
-    label: 'Discord',
-    href: 'https://discord.gg/attestcoin',
-    icon: '◈',
-    description: 'Operator channel, dev support, and testnet coordination.',
-  },
-  {
-    label: 'Documentation',
-    href: 'https://docs.creditcoin.org/creditcoin-usc/usc-chains-environments',
-    icon: <ArrowUpRight size={14} />,
-    description: 'Chain environments, SDK guides, and deployment references.',
-  },
-]
+import { Logo } from '@/components/handshake-app'
+
+type Mode = 'login' | 'signup'
 
 export function ConnectPage() {
+  const navigate = useNavigate()
+  const [mode, setMode] = useState<Mode>('login')
+  const [show, setShow] = useState(false)
+  const [sent, setSent] = useState(false)
+
   return (
-    <main className="reference-shell">
-      <header className="reference-header">
-        <span
-          className="logo-mark"
-          style={{
-            display: 'inline-grid',
-            placeItems: 'center',
-            width: 20,
-            height: 20,
-            color: '#fff',
-            fontSize: 10,
-            fontWeight: 700,
-            fontFamily: "'Courier New', monospace",
-            letterSpacing: '-0.03em',
-          }}
-        >
-          HANDSHAKE
-        </span>
-        <nav className="reference-nav">
-          <a href="/">INDEX</a>
-          <a href="/#protocol">PROTOCOL</a>
-          <a href="/#how-it-works">HOW IT WORKS</a>
-          <a href="/#trust">TRUST MODEL</a>
-          <a href="/#settlement">SETTLEMENT</a>
-          <a href="/connect" className="active">CONNECT</a>
-        </nav>
-      </header>
-
-      <section
-        style={{
-          padding: '80px 24px',
-          background: 'var(--panel)',
-          minHeight: 'calc(100vh - 47px)',
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 1200,
-            margin: '0 auto',
-          }}
-        >
-        <p
-          style={{
-            margin: '0 0 12px',
-            color: '#888',
-            font: "8px 'Courier New', monospace",
-            letterSpacing: '.04em',
-          }}
-        >
-          [ CONNECT ]
-        </p>
-        <h1
-          style={{
-            margin: '0 0 40px',
-            fontSize: 'clamp(28px, 4vw, 40px)',
-            fontWeight: 400,
-            lineHeight: 1.02,
-            letterSpacing: '-0.055em',
-            color: '#f1f1f1',
-          }}
-        >
-          Get in touch
-        </h1>
-        <p
-          style={{
-            margin: '0 0 50px',
-            maxWidth: '52ch',
-            color: '#aaa',
-            font: "8px/1.7 'Courier New', monospace",
-          }}
-        >
-          Whether you’re integrating the Attestcoin SDK, running a testnet operator, or auditing
-          the protocol — there’s a channel for you. The project is open-source and the team is
-          responsive.
-        </p>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 40 }}>
-          {COMMUNITIES.map((item) => (
-            <a
-              key={item.label}
-              href={item.href}
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 12,
-                padding: 24,
-                border: '1px solid #333',
-                textDecoration: 'none',
-                color: 'inherit',
-              }}
-            >
-              <span
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  color: '#f1f1f1',
-                  font: "9px 'Courier New', monospace",
-                  textTransform: 'uppercase',
-                  letterSpacing: '.06em',
-                }}
-              >
-                <span style={{ color: '#aaa', fontSize: 14 }}>{item.icon}</span>
-                {item.label}
-                <ArrowUpRight size={10} style={{ marginLeft: 'auto', color: '#888' }} />
-              </span>
-              <span style={{ color: '#aaa', font: "8px/1.7 'Courier New', monospace" }}>
-                {item.description}
-              </span>
-            </a>
-          ))}
-        </div>
-
-        <div
-          style={{
-            marginTop: 60,
-            padding: '24px 0',
-            borderTop: '1px solid #333',
-          }}
-        >
-          <p
-            style={{
-              margin: '0 0 8px',
-              color: '#888',
-              font: "8px 'Courier New', monospace",
-              letterSpacing: '.04em',
-              textTransform: 'uppercase',
+    <main className="auth-page">
+      <div className="auth-side">
+        <button onClick={() => navigate('/')} style={{ background: 'none', border: 0, padding: 0 }}>
+          <Logo />
+        </button>
+        <div className="auth-cross">×</div>
+        <span>Cross-chain DvP settlement on Creditcoin.</span>
+      </div>
+      <section className="auth-panel">
+        <button className="create-link" onClick={() => setMode('signup')}>
+          Create an account
+        </button>
+        <div className="auth-form">
+          <h1>{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              setSent(true)
+              navigate('/dashboard')
             }}
           >
-            Direct
-          </p>
-          <a
-            href="mailto:ops@handshake.protocol"
-            style={{
-              color: '#f1f1f1',
-              font: "9px 'Courier New', monospace",
-              textDecoration: 'none',
-              borderBottom: '1px solid #3a3a3a',
-            }}
+            <label>
+              Email
+              <input required type="email" placeholder="ops@protocol.xyz" />
+            </label>
+            <label>
+              Password
+              <span className="password-input">
+                <input
+                  required
+                  minLength={6}
+                  type={show ? 'text' : 'password'}
+                  placeholder="••••••••••"
+                />
+                <button type="button" aria-label="Toggle password" onClick={() => setShow(!show)}>
+                  {show ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </span>
+            </label>
+            <div className="form-meta">
+              <label className="remember">
+                <input type="checkbox" /> Remember me
+              </label>
+              <button type="button">Forgot?</button>
+            </div>
+            <button className="sign-button" type="submit">
+              {sent ? '...' : mode === 'login' ? 'SIGN IN' : 'CREATE'}
+            </button>
+          </form>
+          <button
+            className="switch-mode"
+            onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
           >
-            <Mail size={10} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-            ops@handshake.protocol
-          </a>
-        </div>
+            {mode === 'login' ? 'Need an account? Create one' : 'Already have an account? Sign in'}
+          </button>
         </div>
       </section>
     </main>

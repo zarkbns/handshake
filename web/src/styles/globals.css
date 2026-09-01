@@ -16,7 +16,7 @@ button,input { font:inherit; }
 .reference-header { min-height:47px; display:flex; align-items:center; justify-content:space-between; padding:0 14px; border-top:1px solid #3a3a3a; }
 .logo-mark { display:inline-grid; place-items:center; width:20px; height:20px; color:#fff; font-size:25px; font-weight:300; }
 .reference-nav { display:flex; align-items:center; gap:17px; font:8px 'Courier New',monospace; color:#f1f1f1; }
-.reference-nav a,.reference-nav button,.mobile-nav a { color:inherit; text-decoration:none; background:none; border:0; font:inherit; padding:6px 8px; position:relative; }
+.reference-nav a,.reference-nav button,.mobile-nav a { color:inherit; text-decoration:none; background:none; border:0; font:inherit; padding:6px 8px; position:relative; cursor:pointer; }
 .reference-nav .active { background:#eee; color:#222; }
 .reference-nav a::before,
 .reference-nav button::before {

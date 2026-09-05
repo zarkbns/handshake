@@ -1,4 +1,6 @@
-const { Contract, JsonRpcProvider, Wallet, solidityPackedKeccak256 } = require('ethers');
+const { AbiCoder, Contract, JsonRpcProvider, Wallet, keccak256 } = require('ethers');
+
+const coder = AbiCoder.defaultAbiCoder();
 
 const COORDINATOR_ABI = ['event Committed(bytes32 indexed id)'];
 
@@ -18,12 +20,20 @@ function requiredEnv(name) {
 /// Builds the exact digest OperatorCommitStatus recovers:
 ///   keccak256(abi.encode(chainId, commitStatus, settlementId, creditcoinBlock))
 /// signed as a raw digest (no EIP-191 prefix), matching the on-chain ecrecover.
+/// NOTE: the on-chain contract uses abi.encode (32-byte padded fields), so this must use
+/// AbiCoder.encode, not solidityPacked/abi.encodePacked, or the recovered signer won't match.
+function buildCommitDigest({ chainId, commitStatusAddress, settlementId, creditcoinBlock }) {
+  return keccak256(
+    coder.encode(
+      ['uint256', 'address', 'bytes32', 'uint64'],
+      [chainId, commitStatusAddress, settlementId, creditcoinBlock],
+    ),
+  );
+}
+
 async function buildCommitSignature({ ethereum, commitStatusAddress, operator, settlementId, creditcoinBlock }) {
   const { chainId } = await ethereum.getNetwork();
-  const innerDigest = solidityPackedKeccak256(
-    ['uint256', 'address', 'bytes32', 'uint64'],
-    [chainId, commitStatusAddress, settlementId, creditcoinBlock],
-  );
+  const innerDigest = buildCommitDigest({ chainId, commitStatusAddress, settlementId, creditcoinBlock });
   const signed = operator.signingKey.sign(innerDigest);
   return signed.serialized;
 }
@@ -87,4 +97,4 @@ function createCommitRelay({
   return { reportCommitted, relayFinalizedCommits };
 }
 
-module.exports = { STATES, createCommitRelay };
+module.exports = { STATES, buildCommitDigest, createCommitRelay };

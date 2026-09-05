@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { normalizePlan } = require('../scripts/settlement-plan');
 const { ACTIONS, STATES, createRelayer } = require('../scripts/relayer');
+const { buildCommitDigest } = require('../scripts/commit-relay');
+const { AbiCoder, Wallet, keccak256, solidityPackedKeccak256 } = require('ethers');
 
 const plan = normalizePlan({
   leftChainId: 11155111,
@@ -95,8 +97,77 @@ async function testRelayerWithdrawsBondOnceAfterTerminalState() {
   assert.equal((await store.get(plan.settlementId)).bondWithdrawn, true);
 }
 
+// Regression tests for the operator commit-report digest. The relay must produce exactly
+// what OperatorCommitStatus._recover verifies on-chain:
+//   keccak256(abi.encode(chainId, commitStatus, settlementId, creditcoinBlock))
+// The padded-vectors fixture below was produced with Foundry `cast abi-encode` + `cast keccak`,
+// i.e. independently of ethers, so an ethers AbiCoder regression cannot silently re-break this.
+async function testCommitRelayDigestMatchesOnChainAbiEncode() {
+  const chainId = 11155111;
+  const commitStatusAddress = '0x0000000000000000000000000000000000000001';
+  const settlementId = '0x' + '01'.repeat(32);
+  const creditcoinBlock = 12345n;
+
+  const digest = buildCommitDigest({ chainId, commitStatusAddress, settlementId, creditcoinBlock });
+  assert.equal(
+    digest,
+    '0x7cc3a276cb90113969d772ce15fcebb25b898b61f40ce6d498f5d4fe82ee7c9c',
+    'digest must match the cast abi.encode reference vector',
+  );
+  // The packed (abi.encodePacked-style) digest differs and must never be what gets signed.
+  const packed = solidityPackedKeccak256(
+    ['uint256', 'address', 'bytes32', 'uint64'],
+    [chainId, commitStatusAddress, settlementId, creditcoinBlock],
+  );
+  assert.notEqual(digest, packed, 'padded and packed digests must differ for these values');
+}
+
+// Round-trip: sign the relay digest and recover the signer exactly as the contract does
+// (ecrecover over the raw digest, no EIP-191 prefix, v normalized to 27/28).
+async function testCommitRelaySignatureRecoversOperator() {
+  const { recoverAddress } = require('ethers');
+  const operator = Wallet.createRandom();
+  const digest = buildCommitDigest({
+    chainId: 102031,
+    commitStatusAddress: '0xbD42128dFDd2B381fF416FffE8D699F840562067',
+    settlementId: '0x' + 'ab'.repeat(32),
+    creditcoinBlock: 4242n,
+  });
+  const signature = operator.signingKey.sign(digest);
+  const v = signature.v < 27 ? signature.v + 27 : signature.v;
+  assert.equal(
+    recoverAddress(digest, { r: signature.r, s: signature.s, v, yParity: signature.yParity }),
+    operator.address,
+    'recovered signer must be the operator wallet',
+  );
+}
+
+// The relay digest must also equal the digest demo-release.js builds inline for the same
+// inputs, so the manual demo path and the automated relay can never disagree.
+async function testCommitRelayDigestMatchesDemoReleaseEncoding() {
+  const coder = AbiCoder.defaultAbiCoder();
+  const input = {
+    chainId: 11155111,
+    commitStatusAddress: '0x999326d027316C6CD0156a39ac8d3792f2EFC802',
+    settlementId: '0x' + '77'.repeat(32),
+    creditcoinBlock: 999n,
+  };
+  assert.equal(
+    buildCommitDigest(input),
+    keccak256(
+      coder.encode(
+        ['uint256', 'address', 'bytes32', 'uint64'],
+        [input.chainId, input.commitStatusAddress, input.settlementId, input.creditcoinBlock],
+      ),
+    ),
+  );
+}
+
 Promise.resolve()
   .then(testRelayerOrdersDualPrepareBeforeProofsAndCommit)
   .then(testRelayerUsesHeldAfterExpiry)
   .then(testRelayerWithdrawsBondOnceAfterTerminalState)
+  .then(testCommitRelayDigestMatchesOnChainAbiEncode)
+  .then(testCommitRelaySignatureRecoversOperator)
+  .then(testCommitRelayDigestMatchesDemoReleaseEncoding)
   .then(() => process.stdout.write('script tests passed\n'));

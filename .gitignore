@@ -10,5 +10,7 @@ broadcast/
 .vscode
 .agents
 .env.local
-
+# Stray literal "~/" directory created by an unquoted tilde in a past command.
+# It holds local tool configs with live API keys and must never enter history.
+/~/
 

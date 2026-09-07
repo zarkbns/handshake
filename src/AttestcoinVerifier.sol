@@ -57,11 +57,12 @@ contract AttestcoinVerifier is IAttestationVerifier {
     }
 
     /// @inheritdoc IAttestationVerifier
-    function verifyPrepareLeg(bytes calldata proof, bytes32 settlementId, address participant)
-        external
-        view
-        returns (bool)
-    {
+    function verifyPrepareLeg(
+        bytes calldata proof,
+        bytes32 settlementId,
+        address participant,
+        IAttestationVerifier.ExpectedLeg calldata expected
+    ) external view returns (bool) {
         LegProof memory legProof = abi.decode(proof, (LegProof));
 
         bool proven = blockProver.verify(
@@ -82,45 +83,30 @@ contract AttestcoinVerifier is IAttestationVerifier {
         uint256 length = lockedLogs.length;
         for (uint256 i; i < length; ++i) {
             EvmV1Decoder.LogEntry memory log = lockedLogs[i];
-            // Locked(bytes32 indexed settlementId, address indexed token, address indexed depositor, ...)
             if (log.topics.length != 4) continue;
             if (log.address_ != sourceLock) continue;
+            // Locked(bytes32 indexed settlementId, address indexed token, address indexed depositor,
+            //        address recipient, uint256 amount, uint256 expiry)
+            // topics[1..3]: settlementId, token, depositor; data: recipient, amount, expiry.
             if (log.topics[1] != settlementId) continue;
+            if (address(uint160(uint256(log.topics[2]))) != expected.token) continue;
             if (address(uint160(uint256(log.topics[3]))) != participant) continue;
+            if (log.data.length != 96) continue; // recipient (32) + amount (32) + expiry (32)
+            (address recipient, uint256 amount, uint256 expiry) =
+                abi.decode(log.data, (address, uint256, uint256));
+            if (recipient != expected.recipient) continue;
+            if (amount != expected.amount) continue;
+            if (expiry != expected.expiry) continue;
             return true;
         }
         revert LockEventNotFound();
     }
 
     /// @inheritdoc IAttestationVerifier
-    /// @dev The dual-PREPARE gate is enforced by HandshakeASC, which requires two distinct
-    ///      participants to each pass `verifyPrepareLeg` before this aggregate check. Each leg's
-    ///      inclusion + continuity proof is already verified by the precompile at prepare time,
-    ///      so this confirms both prepare commitments are bound to the same settlement id.
-    function verifyPrepare(
-        bytes calldata attestation,
-        bytes32 settlementId,
-        bytes32 leftPrepare,
-        bytes32 rightPrepare
-    ) external pure returns (bool) {
-        if (settlementId == bytes32(0)) return false;
-        if (leftPrepare == bytes32(0) || rightPrepare == bytes32(0)) return false;
-        if (leftPrepare == rightPrepare) return false;
-        // The attestation binds both prepare commitments to this settlement id.
-        bytes32 expected = keccak256(abi.encode(settlementId, leftPrepare, rightPrepare));
-        return abi.decode(attestation, (bytes32)) == expected;
-    }
-
-    /// @inheritdoc IAttestationVerifier
-    /// @dev Settlement finalization is recorded after the irreversible Creditcoin COMMIT and binds
-    ///      the finalization attestation to the accepted evidence manifest.
-    function verifySettlement(bytes calldata attestation, bytes32 settlementId, bytes32 evidenceManifest)
-        external
-        pure
-        returns (bool)
-    {
-        if (settlementId == bytes32(0) || evidenceManifest == bytes32(0)) return false;
-        bytes32 expected = keccak256(abi.encode(settlementId, evidenceManifest));
-        return abi.decode(attestation, (bytes32)) == expected;
-    }
+    /// @dev Removed: the aggregate-attestation layer was not a genuine Attestcoin API. The
+    ///      protocol's real verification happens per leg in `verifyPrepareLeg` (precompile-
+    ///      verified inclusion + continuity proof + full event economics matching). READY is
+    ///      reached once both legs passed that check; there is no aggregate attestation step.
+    // function verifyPrepare(...) — intentionally removed.
+    // function verifySettlement(...) — intentionally removed.
 }

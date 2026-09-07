@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {IHandshake} from "./interfaces/IHandshake.sol";
 import {IAttestationVerifier} from "./interfaces/IAttestationVerifier.sol";
 import {INativeSettlementLock} from "./interfaces/INativeSettlementLock.sol";
+import {SettlementId} from "./SettlementId.sol";
 
 /// @title HandshakeASC
 /// @notice Cross-chain DvP settlement coordinator on Creditcoin.
@@ -31,6 +32,11 @@ contract HandshakeASC is IHandshake {
         uint256 nativeBond;
     }
 
+    /// @notice Canonical settlement terms registered per settlement id. The id is
+    ///         `SettlementId.derive(terms)`, and both legs' lock economics are verified
+    ///         against these at PREPARE — a mismatch anywhere is rejected.
+    mapping(bytes32 => IHandshake.Terms) public terms;
+
     uint256 public constant TIMEOUT = 1 hours;
 
     /// @dev Basis-points denominator for the bond burn split.
@@ -48,8 +54,9 @@ contract HandshakeASC is IHandshake {
     ///      other into a stalled READY window, giving both real skin in the game to drive COMMIT.
     uint256 public immutable bondBurnBps;
 
-    /// @notice Cumulative bond value burned (permanently locked, unwithdrawable) as griefing penalty.
-    uint256 public totalBurned;
+    /// @notice Cumulative bond value slashed (permanently locked in this contract, unwithdrawable)
+    ///         as griefing penalty. The funds are forfeited rather than cryptographically burned.
+    uint256 public totalSlashed;
 
     mapping(bytes32 => Handshake) public handshakes;
 
@@ -75,6 +82,10 @@ contract HandshakeASC is IHandshake {
     error InvalidBurnBps();
     error NoBondToWithdraw();
     error BondTransferFailed();
+    error TermsNotRegistered();
+    error TermsMismatch(bytes32 expected, bytes32 actual);
+    error LegEconomicsMismatch();
+    error RightChainIdMismatch(uint256 expected, uint256 actual);
 
     IAttestationVerifier public immutable verifier;
     INativeSettlementLock public immutable creditcoinLock;
@@ -104,6 +115,58 @@ contract HandshakeASC is IHandshake {
         _;
     }
 
+    /// @notice Registers the canonical settlement terms for `id`.
+    /// @dev Permissionless and idempotent for identical terms. Enforces the canonical
+    ///      settlement-id derivation at the trust boundary: the recomputed derivation over
+    ///      the supplied terms must equal `id`, so every economic field (parties, tokens,
+    ///      amounts, lock references, expiry, both chain ids) is bound to the id itself.
+    ///      The native leg additionally requires `terms.rightChainId == block.chainid` at
+    ///      prepare time so a foreign-chain lock can never satisfy it.
+    function registerTerms(bytes32 id, IHandshake.Terms calldata t) external {
+        if (id == bytes32(0)) revert InvalidSettlementId();
+        bytes32 derived = SettlementId.derive(
+            t.leftChainId,
+            t.rightChainId,
+            t.leftParty,
+            t.rightParty,
+            t.leftToken,
+            t.rightToken,
+            t.leftAmount,
+            t.rightAmount,
+            t.leftLockReference,
+            t.rightLockReference,
+            t.expiry
+        );
+        if (derived != id) revert TermsMismatch(id, derived);
+
+        IHandshake.Terms storage existing = terms[id];
+        if (handshakes[id].state != State.NONE || existing.expiry != 0) {
+            // Terms are immutable once registered; re-registering identical terms is a no-op.
+            if (keccak256(abi.encode(existing)) != keccak256(abi.encode(t))) {
+                revert TermsMismatch(id, derived);
+            }
+            return;
+        }
+        terms[id] = t;
+        emit TermsRegistered(id);
+    }
+
+    /// @notice Verifies a native-lock position against the registered terms (full economics).
+    function _checkNativeLeg(bytes32 id, IHandshake.Terms storage t, address caller) private view {
+        if (t.expiry == 0) revert TermsNotRegistered();
+        if (t.rightChainId != block.chainid) {
+            revert RightChainIdMismatch(t.rightChainId, block.chainid);
+        }
+        (uint8 state, address token, address depositor, address recipient, uint256 amount, uint256 expiry) =
+            creditcoinLock.locks(id);
+        if (state != NATIVE_STATE_LOCKED) revert NativeLegNotLocked();
+        if (depositor != caller || depositor != t.rightParty) revert Unauthorized();
+        if (token != t.rightToken) revert LegEconomicsMismatch();
+        if (recipient != t.leftParty) revert LegEconomicsMismatch();
+        if (amount != t.rightAmount) revert LegEconomicsMismatch();
+        if (expiry != t.expiry) revert LegEconomicsMismatch();
+    }
+
     function _touchPrepareWindow(Handshake storage handshake) private {
         if (handshake.state == State.NONE) {
             handshake.state = State.PREPARE;
@@ -122,12 +185,24 @@ contract HandshakeASC is IHandshake {
         if (id == bytes32(0)) revert InvalidSettlementId();
         if (proof.length == 0) revert EmptyProof();
         if (msg.value != bondAmount) revert IncorrectBond(bondAmount, msg.value);
+        IHandshake.Terms storage t = terms[id];
+        if (t.expiry == 0) revert TermsNotRegistered();
         Handshake storage handshake = handshakes[id];
         if (handshake.attestedPrepared) revert LegAlreadyPrepared();
 
         _touchPrepareWindow(handshake);
 
-        if (!verifier.verifyPrepareLeg(proof, id, msg.sender)) revert VerificationFailed();
+        if (!verifier.verifyPrepareLeg(
+            proof,
+            id,
+            msg.sender,
+            IAttestationVerifier.ExpectedLeg({
+                token: t.leftToken,
+                recipient: t.rightParty,
+                amount: t.leftAmount,
+                expiry: t.expiry
+            })
+        )) revert VerificationFailed();
 
         handshake.attestedPrepared = true;
         handshake.attestedParty = msg.sender;
@@ -139,24 +214,26 @@ contract HandshakeASC is IHandshake {
     }
 
     /// @notice Prepares the Creditcoin-native leg, verified directly against the native lock.
-    /// @dev The caller must have an active LOCKED position in `creditcoinLock` under this id. No
-    ///      Attestcoin proof is required because the lock lives on the coordinator's own chain.
+    /// @dev The caller must have an active LOCKED position in `creditcoinLock` under this id
+    ///      whose token, depositor, recipient, amount and expiry all match the registered
+    ///      canonical terms. No Attestcoin proof is required because the lock lives on the
+    ///      coordinator's own chain.
     /// @param id Canonical settlement id.
     function prepareNativeLeg(bytes32 id) external payable {
         if (id == bytes32(0)) revert InvalidSettlementId();
         if (msg.value != bondAmount) revert IncorrectBond(bondAmount, msg.value);
+        IHandshake.Terms storage t = terms[id];
+        if (t.expiry == 0) revert TermsNotRegistered();
         Handshake storage handshake = handshakes[id];
         if (handshake.nativePrepared) revert LegAlreadyPrepared();
 
         _touchPrepareWindow(handshake);
 
-        (uint8 state,, address depositor,,,) = creditcoinLock.locks(id);
-        if (state != NATIVE_STATE_LOCKED) revert NativeLegNotLocked();
-        if (depositor != msg.sender) revert Unauthorized();
+        _checkNativeLeg(id, t, msg.sender);
 
         handshake.nativePrepared = true;
         handshake.nativeParty = msg.sender;
-        handshake.nativeCommit = keccak256(abi.encode("native-leg", id, depositor));
+        handshake.nativeCommit = keccak256(abi.encode("native-leg", id, msg.sender));
         handshake.nativeBond = msg.value;
         if (msg.value > 0) emit BondPosted(id, msg.sender, msg.value);
 
@@ -166,33 +243,21 @@ contract HandshakeASC is IHandshake {
     function _emitPrepareProgress(bytes32 id, Handshake storage handshake) private {
         if (handshake.attestedPrepared && handshake.nativePrepared) {
             if (handshake.attestedParty == handshake.nativeParty) revert PartiesMustDiffer();
+            // Both legs are already fully verified at this point — the attested leg through the
+            // Attestcoin precompile-checked inclusion + continuity proof (with its event decoded
+            // and matched against the registered terms) and the native leg against the Creditcoin
+            // lock state directly. There is no separate aggregate-attestation step: READY opens
+            // as soon as the second verified leg lands.
+            handshake.state = State.READY;
+            handshake.readyTime = block.timestamp;
+            handshake.evidenceManifest = keccak256(
+                abi.encode(handshake.attestedCommit, handshake.nativeCommit)
+            );
             emit CounterpartyPrepared(id);
+            emit Ready(id);
         } else {
             emit Prepared(id);
         }
-    }
-
-    /// @notice Confirms the dual-PREPARE gate and moves the settlement to READY.
-    /// @dev Both legs must be prepared by distinct parties. The attestation binds both prepare
-    ///      commitments to this settlement id.
-    function submitProofs(bytes32 id, bytes calldata attestations)
-        external
-        onlyState(id, State.PREPARE)
-    {
-        Handshake storage handshake = handshakes[id];
-        if (!handshake.attestedPrepared || !handshake.nativePrepared) revert Unauthorized();
-        if (handshake.attestedParty == handshake.nativeParty) revert PartiesMustDiffer();
-        if (attestations.length == 0) revert EmptyProof();
-
-        if (!verifier.verifyPrepare(attestations, id, handshake.attestedCommit, handshake.nativeCommit)) {
-            revert VerificationFailed();
-        }
-        handshake.state = State.READY;
-        handshake.readyTime = block.timestamp;
-        handshake.evidenceManifest = keccak256(
-            abi.encode(handshake.attestedCommit, handshake.nativeCommit, keccak256(attestations))
-        );
-        emit Ready(id);
     }
 
     function commit(bytes32 id) external onlyState(id, State.READY) {
@@ -205,14 +270,18 @@ contract HandshakeASC is IHandshake {
         emit Committed(id);
     }
 
-    function settle(bytes32 id, bytes calldata attestation) external onlyState(id, State.COMMITTED) {
-        if (attestation.length == 0) revert EmptyProof();
+    /// @notice Records finalization evidence after both native legs have delivered.
+    /// @dev Deliberately evidence-recording only: the release authorization itself lives in
+    ///      the native locks (release is only possible after this coordinator's COMMIT).
+    ///      Any non-empty payload is accepted and hashed into `settlementEvidence`; the
+    ///      payload is expected to be the operator's finalization report (delivery
+    ///      transaction hashes / receipts) and is not interpreted as a cryptographic
+    ///      attestation, because no aggregate attestation layer exists in the protocol.
+    function settle(bytes32 id, bytes calldata finalizationReport) external onlyState(id, State.COMMITTED) {
+        if (finalizationReport.length == 0) revert EmptyProof();
         Handshake storage handshake = handshakes[id];
-        if (!verifier.verifySettlement(attestation, id, handshake.evidenceManifest)) {
-            revert VerificationFailed();
-        }
 
-        handshake.settlementEvidence = keccak256(attestation);
+        handshake.settlementEvidence = keccak256(finalizationReport);
         handshake.state = State.SETTLED;
         emit Settled(id);
     }
@@ -263,7 +332,7 @@ contract HandshakeASC is IHandshake {
 
         if (attestedBond > 0) pendingWithdrawals[handshake.attestedParty] += attestedBond;
         if (nativeBond > 0) pendingWithdrawals[handshake.nativeParty] += nativeBond;
-        if (burned > 0) totalBurned += burned;
+        if (burned > 0) totalSlashed += burned;
 
         emit BondsResolved(id, burned);
     }

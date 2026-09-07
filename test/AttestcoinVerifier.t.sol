@@ -5,16 +5,18 @@ import {AttestcoinVerifier} from "../src/AttestcoinVerifier.sol";
 
 interface Vm {
     function chainId(uint256) external;
+    function expectRevert(bytes calldata) external;
 }
 
-/// @notice Unit tests for the aggregate binding checks in the production Attestcoin verifier.
-/// @dev The precompile-backed `verifyPrepareLeg` path is exercised on public testnet
-///      (see scripts/attestcoin-proof.js); it cannot run in a local EVM without the
-///      Creditcoin Block Prover precompile at 0x0FD2.
+/// @notice Local checks for the production Attestcoin verifier adapter.
+/// @dev The precompile-backed `verifyPrepareLeg` path (proof verification + full event
+///      economics matching against registered terms) requires the Creditcoin Block Prover
+///      precompile at 0x0FD2 and is exercised on public testnet via
+///      scripts/attestcoin-proof.js + demo-settle.js; it cannot run in a local EVM.
+///      The coordinator-level binding of terms into `verifyPrepareLeg` — including the
+///      negative economics cases — is covered by HandshakeASC.t.sol against a strict mock.
 contract AttestcoinVerifierTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-
-    AttestcoinVerifier private verifier;
 
     address private constant SOURCE_LOCK = address(0x5EED);
     uint64 private constant CHAIN_KEY = 1;
@@ -22,59 +24,24 @@ contract AttestcoinVerifierTest {
     function setUp() public {
         // Creditcoin CC3 Testnet chain id so NativeQueryVerifierLib.hasPrecompile() passes.
         vm.chainId(102031);
-        verifier = new AttestcoinVerifier(CHAIN_KEY, SOURCE_LOCK);
     }
 
-    function testPrepareBindsBothCommitmentsToSettlement() public view {
-        bytes32 id = keccak256("trade");
-        bytes32 left = keccak256("left");
-        bytes32 right = keccak256("right");
-        bytes memory attestation = abi.encode(keccak256(abi.encode(id, left, right)));
-        require(verifier.verifyPrepare(attestation, id, left, right), "should verify");
+    function testDeploysOnCreditcoinChain() public {
+        AttestcoinVerifier verifier = new AttestcoinVerifier(CHAIN_KEY, SOURCE_LOCK);
+        require(verifier.sourceChainKey() == CHAIN_KEY, "chain key not bound");
+        require(verifier.sourceLock() == SOURCE_LOCK, "source lock not bound");
     }
 
-    function testPrepareRejectsWrongBinding() public view {
-        bytes32 id = keccak256("trade");
-        bytes32 left = keccak256("left");
-        bytes32 right = keccak256("right");
-        bytes memory wrong = abi.encode(keccak256("not-the-binding"));
-        require(!verifier.verifyPrepare(wrong, id, left, right), "should reject");
+    function testRejectsZeroSourceLock() public {
+        vm.expectRevert(abi.encodeWithSelector(AttestcoinVerifier.InvalidSourceLock.selector));
+        new AttestcoinVerifier(CHAIN_KEY, address(0));
     }
 
-    function testPrepareRejectsIdenticalCommitments() public view {
-        bytes32 id = keccak256("trade");
-        bytes32 same = keccak256("same");
-        bytes memory attestation = abi.encode(keccak256(abi.encode(id, same, same)));
-        require(!verifier.verifyPrepare(attestation, id, same, same), "must be distinct legs");
-    }
-
-    function testSettlementBindsManifest() public view {
-        bytes32 id = keccak256("trade");
-        bytes32 manifest = keccak256("manifest");
-        bytes memory attestation = abi.encode(keccak256(abi.encode(id, manifest)));
-        require(verifier.verifySettlement(attestation, id, manifest), "should verify");
-    }
-
-    function testSettlementRejectsEmptyManifest() public view {
-        bytes32 id = keccak256("trade");
-        bytes memory attestation = abi.encode(keccak256("x"));
-        require(!verifier.verifySettlement(attestation, id, bytes32(0)), "should reject empty");
-    }
-
-    function testPrepareAttestationIsBoundToSettlementId() public view {
-        bytes32 id1 = keccak256("trade-1");
-        bytes32 id2 = keccak256("trade-2");
-        bytes32 left = keccak256("left");
-        bytes32 right = keccak256("right");
-        bytes memory attestation = abi.encode(keccak256(abi.encode(id1, left, right)));
-        require(!verifier.verifyPrepare(attestation, id2, left, right), "replayed attestation must not verify");
-    }
-
-    function testSettlementAttestationIsBoundToManifest() public view {
-        bytes32 id = keccak256("trade");
-        bytes32 manifest1 = keccak256("manifest-1");
-        bytes32 manifest2 = keccak256("manifest-2");
-        bytes memory attestation = abi.encode(keccak256(abi.encode(id, manifest1)));
-        require(!verifier.verifySettlement(attestation, id, manifest2), "replayed settlement attestation must not verify");
+    function testLockEventSignatureIsCanonical() public {
+        AttestcoinVerifier verifier = new AttestcoinVerifier(CHAIN_KEY, SOURCE_LOCK);
+        // Locked(bytes32,address,address,address,uint256,uint256) — topics[1..3] are
+        // settlementId, token, depositor; data packs recipient, amount, expiry.
+        bytes32 sig = keccak256("Locked(bytes32,address,address,address,uint256,uint256)");
+        require(verifier.LOCKED_EVENT_SIGNATURE() == sig, "event signature drifted");
     }
 }

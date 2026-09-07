@@ -14,6 +14,25 @@ pragma solidity ^0.8.28;
 ///      - Recovery via `unlockHeld` must be reachable without attestor cooperation.
 ///      - Every state transition MUST emit its corresponding event.
 interface IHandshake {
+    /// @notice Canonical settlement terms. The settlement id is derived from exactly these
+    ///         fields (see SettlementId), and both legs are verified against them at PREPARE.
+    /// @dev `left` is the attested (foreign-chain, e.g. Ethereum Sepolia) asset leg;
+    ///      `right` is the Creditcoin-native payment leg. Recipients are the counterparty:
+    ///      the asset leg pays `rightParty`, the payment leg pays `leftParty`.
+    struct Terms {
+        uint256 leftChainId;
+        uint256 rightChainId;
+        address leftParty;
+        address rightParty;
+        address leftToken;
+        address rightToken;
+        uint256 leftAmount;
+        uint256 rightAmount;
+        bytes32 leftLockReference;
+        bytes32 rightLockReference;
+        uint256 expiry;
+    }
+
     /// @notice Lifecycle state of a settlement identified by its `bytes32` id.
     enum State {
         /// @dev No settlement registered under this id.
@@ -65,6 +84,11 @@ interface IHandshake {
     /// @param amount Bond amount in wei of native CTC.
     event BondPosted(bytes32 indexed id, address indexed party, uint256 amount);
 
+    /// @notice Emitted when canonical settlement terms are registered for `id`.
+    /// @dev The registered terms hash to `id` via SettlementId.derive — this event is the
+    ///      on-chain record that the id-to-terms binding was verified at the trust boundary.
+    event TermsRegistered(bytes32 indexed id);
+
     /// @notice Emitted when bond balances are resolved on a terminal transition.
     /// @param id Settlement identifier.
     /// @param burned Total bond value burned as griefing penalty (0 on COMMIT / single-leg HELD).
@@ -76,45 +100,54 @@ interface IHandshake {
     event BondWithdrawn(address indexed party, uint256 amount);
 
     /// @notice Returns the hash of the evidence manifest accepted for `id`.
-    /// @dev The manifest binds both prepare proofs and the attestation payload.
+    /// @dev The manifest binds both prepare proof hashes.
     function evidenceManifest(bytes32 id) external view returns (bytes32);
+
+    /// @notice Registers the canonical settlement terms for `id`.
+    /// @dev Permissionless and idempotent (same terms only). The coordinator recomputes
+    ///      `SettlementId.derive` over the given terms and requires it to equal `id`, so the
+    ///      id is enforced as the canonical binding of every economic field at the trust
+    ///      boundary. Both prepare functions verify their leg's on-chain lock economics
+    ///      (token, depositor, recipient, amount, expiry) against these terms.
+    ///      Must be called before the first prepare.
+    function registerTerms(bytes32 id, Terms calldata terms) external;
 
     /// @notice Prepares the Attestcoin-proven leg (an Ethereum Sepolia lock).
     /// @dev Drives NONE -> PREPARE and satisfies one half of the dual-PREPARE gate. The proof is
-    ///      an Attestcoin inclusion/continuity proof of the caller's source-chain lock event.
-    ///      The caller MUST attach exactly the configured griefing bond as `msg.value`.
+    ///      an Attestcoin inclusion/continuity proof of the caller's source-chain lock event; the
+    ///      verifier binds the proven lock's token, depositor, recipient, amount and expiry to the
+    ///      registered terms. The caller MUST attach exactly the configured griefing bond as
+    ///      `msg.value`.
     /// @param id Unique settlement identifier.
     /// @param proof ABI-encoded Attestcoin proof of the caller's source-chain lock event.
     function prepareAttestedLeg(bytes32 id, bytes calldata proof) external payable;
 
     /// @notice Prepares the Creditcoin-native leg, verified directly against the native lock state.
     /// @dev No Attestcoin proof is required because the native lock lives on the coordinator's own
-    ///      chain. The caller must hold an active LOCKED position under `id` and MUST attach exactly
-    ///      the configured griefing bond as `msg.value`.
+    ///      chain. The caller must hold an active LOCKED position under `id` whose token,
+    ///      depositor, recipient, amount and expiry all match the registered terms. The caller
+    ///      MUST attach exactly the configured griefing bond as `msg.value`.
     /// @param id Unique settlement identifier.
     function prepareNativeLeg(bytes32 id) external payable;
 
-    /// @notice Submits aggregated attestor attestations covering BOTH parties'
-    ///         prepare events. On successful quorum verification the settlement
-    ///         becomes READY and the commit window opens.
-    /// @dev Transitions PREPARE -> READY only; enforces the dual-PREPARE gate.
-    ///      Per-source-chain reorg/finality buffers must be respected before
-    ///      proofs are accepted.
-    /// @param id Unique settlement identifier.
-    /// @param attestations ABI-encoded BLS-aggregated attestations (with continuity
-    ///        proofs) attesting to both source-chain prepare events.
-    function submitProofs(bytes32 id, bytes calldata attestations) external;
+    /// @notice Records finalization evidence after both native legs have delivered.
+    /// @dev Deliberately evidence-recording only: the release authorization itself lives in the
+    ///      native locks (release is only possible after the coordinator's COMMIT). The payload
+    ///      is the operator's finalization report (e.g. delivery transaction hashes) and is not
+    ///      treated as a cryptographic attestation — no aggregate attestation layer exists in
+    ///      this protocol. Only reachable after the irreversible Creditcoin COMMIT.
+    function settle(bytes32 id, bytes calldata finalizationReport) external;
 
     /// @notice Executes the irreversible COMMIT on Creditcoin (point of no return).
-    /// @dev Callable only while READY and within the commit window; MUST NOT be
-    ///      reachable once the settlement is HELD. After this succeeds, parties may
-    ///      safely finalize delivery/release on their native chains.
+    /// @dev Permissionless and callable only while READY and within the commit window; MUST NOT
+    ///      be reachable once the settlement is HELD. READY itself is the authorization: it is
+    ///      reached only after BOTH legs were individually verified — the attested leg through a
+    ///      precompile-verified Attestcoin inclusion + continuity proof whose lock event matched
+    ///      the registered canonical terms, and the native leg directly against the Creditcoin
+    ///      lock state (full economics matched). After this succeeds, parties may safely
+    ///      finalize delivery/release on their native chains.
     /// @param id Unique settlement identifier.
     function commit(bytes32 id) external;
-
-    /// @notice Records attested finalization of both native-chain legs.
-    /// @dev This is only reachable after the irreversible Creditcoin COMMIT.
-    function settle(bytes32 id, bytes calldata attestation) external;
 
     /// @notice Unilaterally completes the refund path for a HELD settlement,
     ///         authorizing the source-chain unlock.

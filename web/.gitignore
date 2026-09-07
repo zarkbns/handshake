@@ -13,3 +13,5 @@ __v0_jsx-dev-runtime.ts
 node_modules
 dist/
 .DS_Store
+# Legacy Next.js build output (pre-Vite)
+.next/

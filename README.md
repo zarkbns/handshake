@@ -21,10 +21,12 @@ Built for **BUIDL CTC 2026 Fall (DeFi track)** on Creditcoin + the Attestcoin Pr
 
 Both parties lock funds on their own chains. Attestcoin's decentralized
 attestors + Merkle inclusion + continuity proofs bring the *evidence* of the
-Ethereum lock to Creditcoin — never the asset. The coordinator verifies both
-legs, and once both are proven, `COMMIT` is called — the single point of no
-return. Miss a timeout anywhere and either party can unilaterally refund — no
-attestor required.
+Ethereum lock to Creditcoin — never the asset. The coordinator registers the
+canonical trade terms (the settlement id itself is derived from them and
+cannot drift), verifies both legs' full economics against those terms, and
+once both are proven, `COMMIT` is called — the single point of no return. Miss
+a timeout anywhere and either party can unilaterally refund — no attestor
+required.
 
 ### Sequence
 
@@ -39,17 +41,16 @@ sequenceDiagram
 
     S->>L: lock(settlementId, token, buyer, amount)
     B->>B: lock payment on Creditcoin lock
+    S->>ASC: registerTerms(id, terms) — id must derive from terms
     S->>ASC: prepareAttestedLeg(id, Attestcoin proof)
-    V-->>ASC: precompile verifies inclusion+continuity
-    B->>ASC: prepareNativeLeg(id)  [checks native lock]
-    Note over ASC: dual-PREPARE gate passed
-    S->>ASC: submitProofs(id, attestation)
-    Note over ASC: READY — both legs proven
-    S->>ASC: commit(id)
+    V-->>ASC: precompile verifies inclusion+continuity<br/>+ event economics match terms
+    B->>ASC: prepareNativeLeg(id)  [full lock economics<br/>checked against terms]
+    Note over ASC: second verified leg → READY
+    S->>ASC: commit(id) — permissionless
     Note over ASC: COMMIT — irreversible, Creditcoin only
     ASC-->>L: (relayed, finalized) release asset to buyer
     ASC-->>B: release payment to seller
-    ASC->>ASC: settle(id, attestation) — SETTLED
+    ASC->>ASC: settle(id, finalization report) — SETTLED
 ```
 
 If any step stalls past its timeout window, anyone calls `unlockHeld(id)` and
@@ -73,7 +74,7 @@ Against the deployed public testnets (read-only checks — no keys needed):
 git clone https://github.com/zarkbns/handshake && cd handshake
 npm install && (cd web && npm install)   # deps
 git submodule update --init --recursive  # pinned forge-std (see foundry.lock)
-npm test                                 # 44 Solidity tests + script + web suites
+npm test                                 # 49 Solidity tests + script + web suites
 
 # Verify the live deployment is healthy (read-only, ~30s):
 export CREDITCOIN_RPC_URL=https://rpc.cc3-testnet.creditcoin.network
@@ -113,9 +114,9 @@ halfway.
 stateDiagram-v2
     [*] --> PREPARE: first leg prepared (with bond)
     PREPARE --> PREPARE: second leg prepared
-    PREPARE --> READY: submitProofs — both legs verified
+    PREPARE --> READY: second verified leg (both legs proven)
     READY --> COMMITTED: commit — IRREVERSIBLE (Creditcoin only)
-    COMMITTED --> SETTLED: settle — finalization attestation recorded
+    COMMITTED --> SETTLED: settle — finalization evidence recorded
     PREPARE --> HELD: timeout, anyone may call unlockHeld
     READY --> HELD: timeout, anyone may call unlockHeld
     HELD --> [*]: both chains refund natively
@@ -136,12 +137,15 @@ test suite (`forge test`):
 
 | Guarantee | Test(s) |
 |---|---|
-| No COMMIT before both legs are proven (dual-PREPARE gate) | `testCannotCommitBeforeReady`, `testSubmitProofsRequiresBothLegsPrepared`, `testCannotCommitWithoutVerifiedDualPrepare` |
+| Settlement id is enforced as the canonical derivation of the full terms (no drift, no substitution) | `testRegisterTermsRejectsNonCanonicalId`, `testRegisterTermsRejectsConflictingTerms`, `testPrepareRequiresRegisteredTerms` |
+| Native leg economics fully verified (token, depositor, recipient, amount, expiry) | `testNativeLegRejectsWrongToken`, `testNativeLegRejectsWrongAmount`, `testNativeLegRejectsWrongRecipient`, `testNativeLegRejectsWrongExpiry`, `testNativeLegRejectsWrongDepositorParty` |
+| Foreign-chain lock can never satisfy the native leg | `testNativeLegRejectsForeignRightChainTerms` |
+| Attested-leg proof is bound to the registered terms' economics | `testAttestedLegPassesTermsToVerifier`, `testAttestedLegRejectsWhenVerifierBindingFails` |
+| No COMMIT before both legs are proven (READY gate) | `testCannotCommitBeforeReady`, `testPrepareRequiresVerifiedAttestedLeg`, `testSecondVerifiedPrepareTransitionsToReady` |
 | COMMIT is irreversible and only happens on Creditcoin | `testDoubleCommitRejected`, `testCommittedSettlementCannotBeHeld` |
 | HELD recovery is timeout-based, unilateral, attestor-independent | `testHeldRecoveryNeedsNoVerifier`, `testUnlockHeldBeforeTimeoutRejected` |
-| Attestations are bound to their settlement id / manifest (no replay) | `testPrepareAttestationIsBoundToSettlementId`, `testSettlementAttestationIsBoundToManifest` |
-| Same party cannot occupy both legs | `testSamePartyCannotPrepareBothLegs`, `testPrepareRejectsIdenticalCommitments` |
-| Settlement ids deterministically bind every trade field | `testChangingAnyTradeFieldChangesId`, `testLegOrderIsIntentional` |
+| Same party cannot occupy both legs | `testSamePartyCannotPrepareBothLegs` |
+| Settlement ids deterministically bind every trade field (JS matches Solidity byte-for-byte) | `testChangingAnyTradeFieldChangesId`, `testLegOrderIsIntentional`, `testSettlementIdMatchesSolidityByteForByte` |
 | Griefing bonds: honest first mover always refunded | `testSingleLegTimeoutRefundsHonestMoverInFull`, `testCommitRefundsBothBondsInFull` |
 | Window expiry is enforced everywhere | `testCommitWindowExpiryFallsToHeld`, `testSecondPrepareLegRejectedAfterPrepareWindow` |
 | Source locks refund after expiry without COMMIT; release requires COMMIT | `testRefundIsPermissionlessAfterExpiryWithoutCommit`, `testRefundCannotBypassCommitAfterExpiry`, `testReleaseRequiresCreditcoinCommit` |
@@ -179,15 +183,26 @@ settlement coordination, not bank-grade legal finality. See
 | `OperatorCommitStatus` | Ethereum Sepolia | `0xbD42128dFDd2B381fF416FffE8D699F840562067` |
 | Ethereum asset lock | Ethereum Sepolia | `0x999326d027316C6CD0156a39ac8d3792f2EFC802` |
 
-> Note: the deployed coordinator predates the griefing-bond upgrade (`npm run
-> verify` reports this as `WARN`). All repo contracts and tests include bonds;
-> redeploy before running the bond demo (`demo-grief.js`).
+> Note: the deployed coordinator predates the security-remediation upgrade
+> (canonical terms binding, full leg-economics verification, griefing bonds) —
+> `npm run verify` reports the missing bond config as `WARN`. The repo code is
+> the source of truth; redeploy before running the live demos.
+
+### Timeout recovery keeper
+
+Any funded wallet can drive timeout recovery permissionlessly — no attestor,
+no operator key:
+
+```bash
+node scripts/keeper-timeouts.js --dry-run   # scan for timed-out settlements
+node scripts/keeper-timeouts.js             # move them to HELD
+```
 
 ### Repo layout
 
 ```
 src/           Solidity contracts (coordinator, verifier, locks, adapters)
-test/          Foundry test suites (44 tests) + Node script tests
+test/          Foundry test suites (49 tests) + Node script tests
 script/        Foundry deploy scripts (Creditcoin side, Ethereum side)
 scripts/       Live demo + relayer tooling (Node, ethers, USC SDK)
 web/           Read-only settlement dashboard (Vite + React)
@@ -199,12 +214,16 @@ DEPLOYMENT.md  Deployment, verification, and demo-run instructions
 ### Reproduce everything
 
 ```bash
-npm install                                # root deps (ethers, USC SDK)
+npm install                                # root deps FIRST — forge builds need @gluwa/usc-contracts from node_modules
 (cd web && npm install)                    # dashboard deps
 git submodule update --init --recursive    # pinned forge-std (see foundry.lock)
 npm test                                   # contracts + script tests + web tests
 npm run verify                             # live deployment health check (read-only)
 ```
+
+> `forge build` / `forge test` import `@gluwa/usc-contracts` through
+> `node_modules` (see `remappings.txt`) — run `npm install` before any forge
+> command in a fresh clone, or compilation fails with unresolved imports.
 
 Contract tests: `forge test` · Gas snapshot: `forge snapshot` · Web dashboard:
 `cd web && npm run dev`

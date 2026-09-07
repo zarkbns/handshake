@@ -5,7 +5,8 @@
   "scripts": {
     "test": "forge test && npm run test:scripts && npm run test --prefix web",
     "test:contracts": "forge test",
-    "check:scripts": "node --check scripts/settlement-id.js && node --check scripts/settlement-plan.js && node --check scripts/coordinator-client.js && node --check scripts/relayer.js && node --check scripts/attestcoin-proof.js && node --check scripts/commit-relay.js && node --check scripts/demo-lock.js && node --check scripts/demo-settle.js && node --check scripts/demo-release.js && node --check scripts/demo-refund.js && node --check scripts/demo-grief.js && node --check scripts/verify-deployment.js",
+    "check:scripts": "node --check scripts/settlement-id.js && node --check scripts/settlement-plan.js && node --check scripts/coordinator-client.js && node --check scripts/relayer.js && node --check scripts/attestcoin-proof.js && node --check scripts/commit-relay.js && node --check scripts/demo-lock.js && node --check scripts/demo-settle.js && node --check scripts/demo-release.js && node --check scripts/demo-refund.js && node --check scripts/demo-grief.js && node --check scripts/verify-deployment.js && node --check scripts/keeper-timeouts.js",
+    "keeper:timeouts": "node scripts/keeper-timeouts.js",
     "verify": "node scripts/verify-deployment.js",
     "demo:lock": "node scripts/demo-lock.js",
     "demo:settle": "node scripts/demo-settle.js",

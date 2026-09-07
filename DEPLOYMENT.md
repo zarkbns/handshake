@@ -132,19 +132,26 @@ only the *state* (lock proven, commit reached, held) moves between chains.
 ## Lifecycle
 
 1. Seller and buyer lock on their native chains under the same settlement id,
-   then each prepares their leg (`prepareAttestedLeg` with an Attestcoin proof,
-   `prepareNativeLeg` checked against the native lock).
-2. Either party (or a keeper) submits the aggregate attestation
-   (`submitProofs`) once both legs are prepared → READY.
+   then the canonical terms are registered (`registerTerms` — the coordinator
+   recomputes the id from the terms and rejects any mismatch). Each party then
+   prepares their leg (`prepareAttestedLeg` with an Attestcoin proof whose
+   event economics must match the terms, `prepareNativeLeg` with full lock
+   economics matched against the terms).
+2. The settlement becomes READY automatically when the second leg verifies —
+   there is no separate proof-submission step. The dual-verified-legs gate is
+   the READY transition itself.
 3. Anyone calls `commit` within the window — the only irreversible coordinator
-   transition, and it happens only on Creditcoin.
+   transition, and it happens only on Creditcoin. Permissionless COMMIT is safe
+   because READY already proves both legs against the registered terms (see
+   GUIDE.md's COMMIT authorization model).
 4. The payment lock reads COMMIT natively; the operator relays the finalized
    COMMIT to the Sepolia adapter (`scripts/commit-relay.js` or `demo-release`),
    and after the commit delay both legs release. `settle` records the
-   finalization evidence.
-5. On any timeout before COMMIT, anyone calls `unlockHeld`; after the local
-   lock expiry, anyone may call `NativeSettlementLock.refund`. No attestor is
-   involved in recovery.
+   finalization evidence (delivery transaction references — evidence-recording
+   only; release authorization lives in the native locks).
+5. On any timeout before COMMIT, anyone calls `unlockHeld` — manually or via
+   the keeper (`npm run keeper:timeouts`); after the local lock expiry, anyone
+   may call `NativeSettlementLock.refund`. No attestor is involved in recovery.
 
 ## Evidence
 
@@ -172,6 +179,15 @@ manifest as the stable join key.
 
 ## Monitoring
 
-Watch the `Prepared`, `CounterpartyPrepared`, `Ready`, `Committed`, `Settled`,
-`Held`, `BondPosted`, `BondsResolved`, and `BondWithdrawn` events for the
-operator dashboard (the `web/` dashboard polls the read-only views).
+Watch the `TermsRegistered`, `Prepared`, `CounterpartyPrepared`, `Ready`,
+`Committed`, `Settled`, `Held`, `BondPosted`, `BondsResolved`, and
+`BondWithdrawn` events for the operator dashboard (the `web/` dashboard polls
+the read-only views).
+
+For timeout recovery, run the permissionless keeper on any funded wallet (no
+attestor or operator key needed):
+
+```bash
+npm run keeper:timeouts -- --dry-run   # scan for settlements past their window
+npm run keeper:timeouts                # move them to HELD so refunds can proceed
+```

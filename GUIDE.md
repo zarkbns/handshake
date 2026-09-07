@@ -1,8 +1,8 @@
 # Handshake – Internal Design Document
 
-**Version:** 0.3
+**Version:** 0.4
 **Track:** DeFi | BUIDL CTC 2026 Fall (Attestcoin Protocol)
-**Date:** 22 August 2026
+**Date:** 07 September 2026
 **Status:** Working backbone for the team
 
 Cross-chain Delivery-versus-Payment (DvP) settlement on Creditcoin. Assets stay on their native chains. Only verified settlement state is proven on Creditcoin using the Attestcoin Protocol. No bridges, no wrapped assets, no single centralized oracle.
@@ -18,6 +18,46 @@ Solves the messy problem of settling value across chains without the usual bridg
 - Explicit protections against reorgs and griefing in the PREPARE window.
 - Liveness failures degrade to refund instead of permanent lock.
 - Griefing window is protected by a bond/penalty mechanism (see below) — this was open as of v0.2, resolved in v0.3.
+
+**Security remediation (v0.4, 2026-09-07):**
+
+- Settlement economics are bound at the coordinator: `registerTerms` records the
+  canonical terms and recomputes the settlement id from them — an id that does not
+  derive from the supplied terms is rejected. Both prepare functions verify their
+  leg's full on-chain economics (token, depositor, recipient, amount, expiry)
+  against those registered terms, and the native leg additionally requires the
+  terms' `rightChainId` to be the coordinator's own chain.
+- The aggregate-attestation layer was removed. The previous `submitProofs` /
+  `verifyPrepare` / `verifySettlement` functions checked self-computed keccak
+  hashes, not cryptographic attestations — the demo scripts computed the same
+  hash client-side and submitted it, so the check provided no security. The
+  genuine verification in the system is per-leg: the attested leg through the
+  Creditcoin Block Prover precompile (inclusion + continuity proof, with the
+  proven `Locked` event's full economics decoded and matched against the
+  registered terms), and the native leg against Creditcoin lock state directly.
+  READY now opens automatically when the second verified leg prepares. No
+  Attestcoin API for aggregate multi-event attestations exists in the installed
+  USC SDK (v0.2.0); if one ships, an aggregate step could be reintroduced on
+  top of — not instead of — the per-leg verification.
+- `settle` is evidence-recording only. It hashes the operator's finalization
+  report (delivery transaction references) after COMMIT. Release authorization
+  was always enforced by the native locks, which refuse to release before the
+  coordinator's COMMIT; nothing about settlement finality depends on the
+  settle payload.
+
+**COMMIT authorization model (explicit):**
+
+`commit` is permissionless — callable by anyone while the settlement is READY
+and within the commit window. This is safe *because READY itself is the
+authorization*: READY can only be reached after both legs were individually
+verified against the registered canonical terms (the attested leg via a
+precompile-verified Attestcoin proof whose lock event matched token,
+depositor, recipient, amount and expiry; the native leg against Creditcoin
+lock state with the same economics). Once both legs are proven, committing is
+in both parties' agreed interest — the terms registered (and hashed into the
+settlement id) are exactly the trade both sides locked on their own chains.
+No additional signer gate is needed or added; a permissionless COMMIT cannot
+authorize anything the two verified legs have not already agreed to.
 
 **Demo must have 3 slides:**
 

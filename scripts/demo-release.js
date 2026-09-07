@@ -45,8 +45,19 @@ function env(name) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Optional: read the plan demo-lock.js wrote instead of hand-copying env vars.
+function loadPlan() {
+  const { readFileSync } = require('fs');
+  try {
+    return JSON.parse(readFileSync(process.env.SETTLEMENT_PLAN_FILE || 'settlement-plan.json', 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
 async function main() {
-  const settlementId = env('SETTLEMENT_ID');
+  const plan = loadPlan();
+  const settlementId = plan.settlementId || env('SETTLEMENT_ID');
 
   const cc = new JsonRpcProvider(env('CREDITCOIN_RPC_URL'), undefined, { staticNetwork: true });
   const eth = new JsonRpcProvider(env('ETHEREUM_SEPOLIA_RPC_URL'), undefined, { staticNetwork: true });

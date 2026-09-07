@@ -17,4 +17,6 @@ broadcast/
 /~/
 # Local audit/agent scratch bundles.
 .audit-*/
+# Demo plan file written by demo-lock.js and read by demo-settle/demo-release.
+settlement-plan.json
 

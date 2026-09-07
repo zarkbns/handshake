@@ -50,9 +50,21 @@ async function state(asc, id) {
   return Number(record.state);
 }
 
+// Optional: read the plan demo-lock.js wrote instead of hand-copying env vars.
+function loadPlan() {
+  const path = require('path');
+  const { readFileSync } = require('fs');
+  try {
+    return JSON.parse(readFileSync(process.env.SETTLEMENT_PLAN_FILE || 'settlement-plan.json', 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
 async function main() {
-  const settlementId = env('SETTLEMENT_ID');
-  const assetTxHash = env('ASSET_LOCK_TX');
+  const plan = loadPlan();
+  const settlementId = plan.settlementId || env('SETTLEMENT_ID');
+  const assetTxHash = plan.ethereumAssetLockTx || env('ASSET_LOCK_TX');
 
   const cc = new JsonRpcProvider(env('CREDITCOIN_RPC_URL'), undefined, { staticNetwork: true });
   const seller = new Wallet(env('SELLER_PRIVATE_KEY'), cc);

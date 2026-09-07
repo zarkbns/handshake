@@ -92,13 +92,19 @@ async function main() {
   const payReceipt = await payTx.wait();
   console.log('Creditcoin payment lock tx:', payReceipt.hash);
 
-  console.log('\n=== Both legs locked ===');
-  console.log(JSON.stringify({
+  // Persist the plan so downstream demo scripts (settle/release) can pick it up without
+  // re-deriving the id or hand-copying the lock tx hash between terminals.
+  const plan = {
     settlementId,
     ethereumAssetLockTx: assetReceipt.hash,
     creditcoinPaymentLockTx: payReceipt.hash,
     expiry,
-  }, null, 2));
+  };
+  const { writeFileSync } = require('fs');
+  const planPath = process.env.SETTLEMENT_PLAN_FILE || 'settlement-plan.json';
+  writeFileSync(planPath, JSON.stringify(plan, null, 2) + '\n');
+  console.log(`\n=== Both legs locked === (plan written to ${planPath})`);
+  console.log(JSON.stringify(plan, null, 2));
   console.log('\nNext: wait for Sepolia block attestation, then:');
   console.log('  npm run prove:ethereum ' + assetReceipt.hash);
 }

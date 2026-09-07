@@ -1,96 +1,174 @@
 # Handshake
 
-**Cross-chain DvP settlement primitive on Creditcoin**
+> **Cross-chain Delivery-versus-Payment settlement on Creditcoin — assets never leave their chains.** Handshake locks payment and asset under native custody on two chains, proves the foreign lock to Creditcoin with Attestcoin, and enforces one irreversible `COMMIT`. Zero bridges. Zero wrapping. Zero centralized oracles.
 
-Native-asset settlement coordination via Attestcoin Protocol.  
-Verified state only. Zero bridging. Zero wrapping. Zero centralized oracles.
-
----
-
-### Overview
-
-Handshake is a trust-minimized cross-chain Delivery-versus-Payment protocol built on Creditcoin.
-
-It coordinates atomic settlement between heterogeneous chains by moving **attested settlement state** instead of assets. Source-chain positions remain locked under local custody while an Attestcoin Smart Contract (ASC) on Creditcoin enforces sequencing, finality buffers, and an irreversible `COMMIT` boundary.
-
-Built for BUIDL CTC 2026 Fall (DeFi track).
+Built for **BUIDL CTC 2026 Fall (DeFi track)** on Creditcoin + the Attestcoin Protocol.
 
 ---
 
-### Problem
+## How it works in 10 seconds
 
-Cross-chain settlement remains fragmented:
+```
+ Ethereum Sepolia                 Creditcoin Testnet
+┌─────────────────────┐          ┌──────────────────────────────┐
+│  Asset lock (ERC-20)│          │  HandshakeASC (coordinator)  │
+│  NativeSettlementLock◄─Attestcoin─► State machine:            │
+│                     │  proof    │  PREPARE → READY → COMMIT   │
+│  Release only after │          │        ↘ timeout → HELD      │
+│  Creditcoin COMMIT  │          │  Payment lock (native CTC)   │
+└─────────────────────┘          └──────────────────────────────┘
+```
 
-- Bridges introduce custody + smart-contract surface area
-- Centralized oracles create single points of failure
-- Asynchronous finality leaves counterparties exposed during settlement windows
-- Restricted assets cannot safely traverse bridges
+Both parties lock funds on their own chains. Attestcoin's decentralized
+attestors + Merkle inclusion + continuity proofs bring the *evidence* of the
+Ethereum lock to Creditcoin — never the asset. The coordinator verifies both
+legs, and once both are proven, `COMMIT` is called — the single point of no
+return. Miss a timeout anywhere and either party can unilaterally refund — no
+attestor required.
 
-Result: capital inefficiency and persistent settlement risk.
+### Sequence
 
----
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Seller (Ethereum)
+    participant B as Buyer (Creditcoin)
+    participant L as Asset lock (Sepolia)
+    participant ASC as HandshakeASC (Creditcoin)
+    participant V as Attestcoin verifier
 
-### Solution
+    S->>L: lock(settlementId, token, buyer, amount)
+    B->>B: lock payment on Creditcoin lock
+    S->>ASC: prepareAttestedLeg(id, Attestcoin proof)
+    V-->>ASC: precompile verifies inclusion+continuity
+    B->>ASC: prepareNativeLeg(id)  [checks native lock]
+    Note over ASC: dual-PREPARE gate passed
+    S->>ASC: submitProofs(id, attestation)
+    Note over ASC: READY — both legs proven
+    S->>ASC: commit(id)
+    Note over ASC: COMMIT — irreversible, Creditcoin only
+    ASC-->>L: (relayed, finalized) release asset to buyer
+    ASC-->>B: release payment to seller
+    ASC->>ASC: settle(id, attestation) — SETTLED
+```
 
-Handshake elevates Creditcoin to settlement coordinator.
+If any step stalls past its timeout window, anyone calls `unlockHeld(id)` and
+both chains refund natively. Recovery never depends on attestor uptime.
 
-- The Ethereum Sepolia asset leg and Creditcoin payment leg execute under native custody
-- Attestcoin supplies decentralized attestation + Merkle inclusion + continuity proofs for the Ethereum Sepolia lock
-- ASC on Creditcoin maintains the canonical state machine and enforces the irreversible `COMMIT`
+### The three chains' roles
 
-Settlement progresses only on verified external state.
-
----
-
-### Core Properties
-
-- **Native custody** — Assets never leave issuance chains
-- **Attested state transfer** — Attestcoin decentralized attestors + cryptographic proofs
-- **Irreversible COMMIT** — Explicit point-of-no-return on Creditcoin
-- **Unilateral recovery** — Timeout-driven `HELD` path with no further attestor dependency
-- **Finality-aware** — Configurable confirmation buffers + reorg resistance
-- **Griefing-resistant** — Dual-PREPARE gating + bounded settlement window
-
----
-
-### State Machine
-
-1. `PREPARE` — Locks established on Ethereum Sepolia and Creditcoin  
-2. Proof submission — The Ethereum inclusion + continuity proof and Creditcoin-native lock are verified  
-3. `READY` — Both settlement legs are confirmed  
-4. `COMMIT` — Irreversible settlement authorization on Creditcoin  
-5. Native finalization **or** timeout → `HELD` → unilateral unlock
-
----
-
-### Architecture
-
-| Component              | Responsibility                              |
-|------------------------|---------------------------------------------|
-| Ethereum Sepolia      | Attestcoin-proven asset lock / release      |
-| Creditcoin Testnet    | Native payment lock and settlement coordination |
-| Attestcoin Protocol    | Decentralized attestation + proof generation |
-| Creditcoin ASC         | Canonical state machine + COMMIT enforcement|
-| Handshake Contracts    | Business logic, timeouts, recovery paths    |
-
-**Stack**
-- Creditcoin + Attestcoin Protocol
-- Solidity (ASC)
-- Attestcoin / USC SDK
-- Initial networks: Creditcoin Testnet and Ethereum Sepolia
-- Attestcoin proves the Ethereum Sepolia leg; the Creditcoin leg is native to the coordinator network.
+| Layer | Chain | Role |
+|---|---|---|
+| **Asset leg** | Ethereum Sepolia | Seller's ERC-20 locked in `NativeSettlementLock`; released only after a finalized Creditcoin `COMMIT` is reported by the operator-signed adapter, refundable by anyone after expiry |
+| **Settlement coordination** | Creditcoin Testnet | `HandshakeASC` runs the canonical state machine, verifies Attestcoin proofs via the Block Prover precompile, and enforces the irreversible `COMMIT` boundary |
+| **Attestation** | Attestcoin Protocol | Decentralized attestor quorum produces inclusion + continuity proofs of the Ethereum lock; Creditcoin's precompile verifies them on-chain |
 
 ---
 
-### Status
+## Try Handshake in 3 minutes
 
-The Solidity coordinator, the production Attestcoin verifier, and the native-chain
-ERC-20 lock primitive are implemented and covered by tests. The coordinator provides
-the complete Creditcoin lifecycle: verified per-leg preparation, the dual-PREPARE
-gate, bounded COMMIT, post-COMMIT settlement attestation, and attestor-independent
-HELD recovery.
+Against the deployed public testnets (read-only checks — no keys needed):
 
-**Deployed (public testnets):**
+```bash
+git clone https://github.com/zarkbns/handshake && cd handshake
+npm install && (cd web && npm install)   # deps
+git submodule update --init --recursive  # pinned forge-std (see foundry.lock)
+npm test                                 # 44 Solidity tests + script + web suites
+
+# Verify the live deployment is healthy (read-only, ~30s):
+export CREDITCOIN_RPC_URL=https://rpc.cc3-testnet.creditcoin.network
+export ETHEREUM_SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+export HANDSHAKE_ASC_ADDRESS=0x905E0f141D8B5333F49755B08395d1beAdEd74Ab
+export ATTESTCOIN_VERIFIER_ADDRESS=0xcB04133cEeD70bbb9692D528F21B7205838eAa13
+export CREDITCOIN_COMMIT_STATUS_ADDRESS=0x2002dcc1341707e7a6D6d5dC49EE7e610B9d4680
+export CREDITCOIN_LOCK_ADDRESS=0xb3e9cB40A52EF777A29b6198f4c2D8d19893a01D
+export ETHEREUM_LOCK_ADDRESS=0x999326d027316C6CD0156a39ac8d3792f2EFC802
+export ETHEREUM_COMMIT_STATUS_ADDRESS=0xbD42128dFDd2B381fF416FffE8D699F840562067
+npm run verify
+```
+
+The verify step checks both chain ids, every contract's bytecode, and the full
+cross-chain wiring — the fastest way to confirm the deployment is real.
+
+**Full live demo** (needs two funded testnet wallets — see
+[DEPLOYMENT.md](./DEPLOYMENT.md) for keys/faucets and the one-time demo-token
+setup):
+
+```bash
+npm run demo:lock      # 1. lock both legs, derives + persists the settlement plan
+npm run demo:settle    # 2. real Attestcoin proof → PREPARE → READY → COMMIT
+npm run demo:release   # 3. deliver both legs after COMMIT → SETTLED
+npm run demo:refund    # 4. (separate settlement) unilateral HELD refund, no attestor
+```
+
+Each step prints the on-chain state as it advances (`PREPARE → READY →
+COMMITTED → SETTLED`) and is idempotent — safe to re-run if a step failed
+halfway.
+
+---
+
+## State machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> PREPARE: first leg prepared (with bond)
+    PREPARE --> PREPARE: second leg prepared
+    PREPARE --> READY: submitProofs — both legs verified
+    READY --> COMMITTED: commit — IRREVERSIBLE (Creditcoin only)
+    COMMITTED --> SETTLED: settle — finalization attestation recorded
+    PREPARE --> HELD: timeout, anyone may call unlockHeld
+    READY --> HELD: timeout, anyone may call unlockHeld
+    HELD --> [*]: both chains refund natively
+```
+
+| State | Meaning | Who can advance it |
+|---|---|---|
+| `PREPARE` | One or both legs locked + registered, bonds posted | Each party prepares its own leg |
+| `READY` | Both legs proven (Attestcoin proof verified by the precompile) | Anyone (keeper/relayer) |
+| `COMMITTED` | Point of no return — settled on Creditcoin | Anyone, within the window |
+| `SETTLED` | Both chains delivered, evidence recorded | Anyone |
+| `HELD` | Timed out — refund path, no attestor needed | Anyone, permissionless |
+
+## Security guarantees (each one tested)
+
+Every guarantee below is enforced by contract code and covered by the Foundry
+test suite (`forge test`):
+
+| Guarantee | Test(s) |
+|---|---|
+| No COMMIT before both legs are proven (dual-PREPARE gate) | `testCannotCommitBeforeReady`, `testSubmitProofsRequiresBothLegsPrepared`, `testCannotCommitWithoutVerifiedDualPrepare` |
+| COMMIT is irreversible and only happens on Creditcoin | `testDoubleCommitRejected`, `testCommittedSettlementCannotBeHeld` |
+| HELD recovery is timeout-based, unilateral, attestor-independent | `testHeldRecoveryNeedsNoVerifier`, `testUnlockHeldBeforeTimeoutRejected` |
+| Attestations are bound to their settlement id / manifest (no replay) | `testPrepareAttestationIsBoundToSettlementId`, `testSettlementAttestationIsBoundToManifest` |
+| Same party cannot occupy both legs | `testSamePartyCannotPrepareBothLegs`, `testPrepareRejectsIdenticalCommitments` |
+| Settlement ids deterministically bind every trade field | `testChangingAnyTradeFieldChangesId`, `testLegOrderIsIntentional` |
+| Griefing bonds: honest first mover always refunded | `testSingleLegTimeoutRefundsHonestMoverInFull`, `testCommitRefundsBothBondsInFull` |
+| Window expiry is enforced everywhere | `testCommitWindowExpiryFallsToHeld`, `testSecondPrepareLegRejectedAfterPrepareWindow` |
+| Source locks refund after expiry without COMMIT; release requires COMMIT | `testRefundIsPermissionlessAfterExpiryWithoutCommit`, `testRefundCannotBypassCommitAfterExpiry`, `testReleaseRequiresCreditcoinCommit` |
+| Operator reports are signature-bound to chain + deployment + settlement | `testSignatureIsBoundToThisDeployment`, `testRejectsNonOperatorSignature` |
+
+**Trust model (stated plainly).** Handshake inherits Attestcoin's decentralized
+attestor quorum (BLS-aggregated signatures + continuity proofs) for proving the
+Ethereum lock. It adds no new trusted parties on the refund path: HELD → refund
+requires zero attestor cooperation. Residual quorum-collusion risk on the
+attestation path is inherited, not eliminated — Handshake claims verifiable
+settlement coordination, not bank-grade legal finality. See
+[GUIDE.md](./GUIDE.md) for the full trust analysis.
+
+---
+
+## Architecture
+
+| Component | Responsibility | Source |
+|---|---|---|
+| `HandshakeASC` | Canonical state machine, dual-PREPARE gate, COMMIT boundary, bonds | [`src/HandshakeASC.sol`](./src/HandshakeASC.sol) |
+| `AttestcoinVerifier` | Verifies Attestcoin proofs via Creditcoin precompile; binds the proven lock event to the settlement | [`src/AttestcoinVerifier.sol`](./src/AttestcoinVerifier.sol) |
+| `NativeSettlementLock` | Non-custodial lock used on both chains — release only after COMMIT, permissionless refund after expiry | [`src/NativeSettlementLock.sol`](./src/NativeSettlementLock.sol) |
+| `CreditcoinCommitStatus` | Reads COMMIT directly from the coordinator (same chain) | [`src/CreditcoinCommitStatus.sol`](./src/CreditcoinCommitStatus.sol) |
+| `OperatorCommitStatus` | Operator-signed COMMIT reports for the Sepolia lock (documented compromise until Attestcoin writability ships) | [`src/OperatorCommitStatus.sol`](./src/OperatorCommitStatus.sol) |
+| `SettlementId` | Canonical cross-chain id derivation (both parties, tokens, amounts, lock refs, expiry) | [`src/SettlementId.sol`](./src/SettlementId.sol) |
+
+**Deployed (public testnets, verified by `npm run verify`):**
 
 | Contract | Network | Address |
 |---|---|---|
@@ -101,42 +179,51 @@ HELD recovery.
 | `OperatorCommitStatus` | Ethereum Sepolia | `0xbD42128dFDd2B381fF416FffE8D699F840562067` |
 | Ethereum asset lock | Ethereum Sepolia | `0x999326d027316C6CD0156a39ac8d3792f2EFC802` |
 
-**Settlement ID API.** The coordinator is two-leg: `prepareAttestedLeg(id, proof)`
-(Ethereum leg, proven through Attestcoin) and `prepareNativeLeg(id)` (Creditcoin leg,
-verified directly against the native lock). `submitProofs` -> `READY`, `commit` ->
-`COMMITTED`, `settle` -> `SETTLED`, `unlockHeld` -> `HELD`.
+> Note: the deployed coordinator predates the griefing-bond upgrade (`npm run
+> verify` reports this as `WARN`). All repo contracts and tests include bonds;
+> redeploy before running the bond demo (`demo-grief.js`).
 
-Settlement IDs are derived canonically from both chains, parties, token addresses,
-amounts, lock references, and expiry. The Solidity encoder is in `src/SettlementId.sol`;
-the matching Node.js helper is in `scripts/settlement-id.js`.
+### Repo layout
 
-The live demo tooling lives in `scripts/`:
-- `demo-lock.js` — derive a settlement id and lock both legs.
-- `demo-settle.js` — generate a real Attestcoin proof and drive
-  `PREPARE -> READY -> COMMIT`.
-- `demo-release.js` — deliver both legs after COMMIT and record `settle`.
-- `demo-refund.js` — demonstrate the unilateral HELD refund path.
-- `attestcoin-proof.js` — generate and verify a real Ethereum Sepolia proof via Attestcoin.
+```
+src/           Solidity contracts (coordinator, verifier, locks, adapters)
+test/          Foundry test suites (44 tests) + Node script tests
+script/        Foundry deploy scripts (Creditcoin side, Ethereum side)
+scripts/       Live demo + relayer tooling (Node, ethers, USC SDK)
+web/           Read-only settlement dashboard (Vite + React)
+config/        Testnet connection config template
+GUIDE.md       Full design doc: trust model, sequencing, recovery semantics
+DEPLOYMENT.md  Deployment, verification, and demo-run instructions
+```
 
-**Frontend note (read-only dashboard):** the frontend should only read on-chain state and
-render it — poll the coordinator's `getHandshake(id)` and the two lock contracts. It should
-not drive settlement. See `scripts/coordinator-client.js` for the coordinator ABI and
-`config/testnets.example.json` for the RPC/address env vars.
+### Reproduce everything
 
----
+```bash
+npm install                                # root deps (ethers, USC SDK)
+(cd web && npm install)                    # dashboard deps
+git submodule update --init --recursive    # pinned forge-std (see foundry.lock)
+npm test                                   # contracts + script tests + web tests
+npm run verify                             # live deployment health check (read-only)
+```
 
-### Documentation
-
-- [Design Guide](./GUIDE.md) — Full trust model, sequencing rules, reorg handling, and recovery semantics
-
----
-
-### Security Notes
-
-Handshake inherits Attestcoin’s decentralized attestor security model (quorum + aggregated signatures + continuity proofs). It does not provide legal finality equivalent to traditional CCPs. Residual quorum and liveness assumptions apply.
+Contract tests: `forge test` · Gas snapshot: `forge snapshot` · Web dashboard:
+`cd web && npm run dev`
 
 ---
 
-### License
+## Documentation
+
+- [GUIDE.md](./GUIDE.md) — full trust model, COMMIT sequencing, reorg handling, recovery semantics
+- [DEPLOYMENT.md](./DEPLOYMENT.md) — deploy, verify, and run the live demo end to end
+
+## Security notes
+
+Handshake inherits Attestcoin's decentralized attestor security model (quorum +
+aggregated signatures + continuity proofs). The refund path depends on no
+attestor. This is not legal finality equivalent to traditional CCPs; residual
+quorum and liveness assumptions on the attestation path apply and are stated in
+GUIDE.md.
+
+## License
 
 MIT

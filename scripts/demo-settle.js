@@ -1,16 +1,14 @@
 require('dotenv').config({ override: true });
-const { AbiCoder, Contract, JsonRpcProvider, Wallet, keccak256 } = require('ethers');
-const { deriveSettlementId } = require('./settlement-id');
+const { AbiCoder, Contract, JsonRpcProvider, Wallet } = require('ethers');
 const { proveEthereumSepoliaTransaction } = require('./attestcoin-proof');
 
 const coder = AbiCoder.defaultAbiCoder();
 
 const ASC_ABI = [
+  'function registerTerms(bytes32 id, (uint256 leftChainId, uint256 rightChainId, address leftParty, address rightParty, address leftToken, address rightToken, uint256 leftAmount, uint256 rightAmount, bytes32 leftLockReference, bytes32 rightLockReference, uint256 expiry) terms)',
   'function prepareAttestedLeg(bytes32 id, bytes proof) payable',
   'function prepareNativeLeg(bytes32 id) payable',
-  'function submitProofs(bytes32 id, bytes attestations)',
   'function commit(bytes32 id)',
-  'function settle(bytes32 id, bytes attestation)',
   'function bondAmount() view returns (uint256)',
   'function isCommitted(bytes32 id) view returns (bool)',
   'function getHandshake(bytes32 id) view returns (uint8 state, address initiator, uint256 prepareTime, uint256 readyTime, bytes32 leftCommit, bytes32 rightCommit, bytes32 manifest, bytes32 settlementEvidence)',
@@ -50,9 +48,9 @@ async function state(asc, id) {
   return Number(record.state);
 }
 
-// Optional: read the plan demo-lock.js wrote instead of hand-copying env vars.
+// Plan written by demo-lock.js carries the full settlement terms so registerTerms
+// can bind the id to the exact on-chain economics both legs must match.
 function loadPlan() {
-  const path = require('path');
   const { readFileSync } = require('fs');
   try {
     return JSON.parse(readFileSync(process.env.SETTLEMENT_PLAN_FILE || 'settlement-plan.json', 'utf8'));
@@ -65,6 +63,10 @@ async function main() {
   const plan = loadPlan();
   const settlementId = plan.settlementId || env('SETTLEMENT_ID');
   const assetTxHash = plan.ethereumAssetLockTx || env('ASSET_LOCK_TX');
+  const terms = plan.terms;
+  if (!terms) {
+    throw new Error('settlement terms are required: run demo-lock.js first (or add a terms object to the plan file)');
+  }
 
   const cc = new JsonRpcProvider(env('CREDITCOIN_RPC_URL'), undefined, { staticNetwork: true });
   const seller = new Wallet(env('SELLER_PRIVATE_KEY'), cc);
@@ -81,34 +83,41 @@ async function main() {
   const bond = await ascSeller.bondAmount();
   console.log('Required prepare bond (wei):', bond.toString());
 
-  // 1. Generate + verify the real Attestcoin proof, then encode it for on-chain verification.
-  console.log('\n[1/5] Generating Attestcoin proof for the Ethereum asset lock...');
+  // 1. Register the canonical terms: the coordinator recomputes the settlement id from
+  //    these fields and rejects any mismatch — binding the id to the exact economics.
+  console.log('\n[1/4] registerTerms (canonical id binding)...');
+  await (await ascSeller.registerTerms(settlementId, [
+    terms.leftChainId,
+    terms.rightChainId,
+    terms.leftParty,
+    terms.rightParty,
+    terms.leftToken,
+    terms.rightToken,
+    terms.leftAmount,
+    terms.rightAmount,
+    terms.leftLockReference,
+    terms.rightLockReference,
+    terms.expiry,
+  ])).wait();
+
+  // 2. Generate + verify the real Attestcoin proof, then prepare the attested (Ethereum)
+  //    leg as the seller. The verifier matches the proven lock event's full economics
+  //    (token, depositor, recipient, amount, expiry) against the registered terms.
+  console.log('\n[2/4] Generating Attestcoin proof + prepareAttestedLeg (seller)...');
   const proof = await proveEthereumSepoliaTransaction({ transactionHash: assetTxHash });
   const legProof = encodeLegProof(proof);
   console.log('      Proof verified off-chain against precompile:', proof.verified);
-
-  // 2. Prepare the attested (Ethereum) leg as the seller.
-  console.log('\n[2/5] prepareAttestedLeg (seller)...');
   await (await ascSeller.prepareAttestedLeg(settlementId, legProof, { value: bond })).wait();
   console.log('      state:', STATE_NAMES[await state(ascSeller, settlementId)]);
 
-  // 3. Prepare the native (Creditcoin) leg as the buyer.
-  console.log('\n[3/5] prepareNativeLeg (buyer)...');
+  // 3. Prepare the native (Creditcoin) leg as the buyer. Full lock economics are checked
+  //    against the registered terms; the SECOND verified prepare moves straight to READY.
+  console.log('\n[3/4] prepareNativeLeg (buyer) — second verified leg -> READY...');
   await (await ascBuyer.prepareNativeLeg(settlementId, { value: bond })).wait();
   console.log('      state:', STATE_NAMES[await state(ascSeller, settlementId)]);
 
-  // 4. submitProofs -> READY. The aggregate attestation binds both prepare commitments.
-  console.log('\n[4/5] submitProofs -> READY...');
-  const record = await ascSeller.getHandshake(settlementId);
-  const attestation = coder.encode(
-    ['bytes32'],
-    [keccak256(coder.encode(['bytes32', 'bytes32', 'bytes32'], [settlementId, record.leftCommit, record.rightCommit]))],
-  );
-  await (await ascSeller.submitProofs(settlementId, attestation)).wait();
-  console.log('      state:', STATE_NAMES[await state(ascSeller, settlementId)]);
-
-  // 5. commit -> COMMITTED (the irreversible boundary).
-  console.log('\n[5/5] commit -> COMMITTED...');
+  // 4. commit -> COMMITTED (the irreversible boundary).
+  console.log('\n[4/4] commit -> COMMITTED...');
   await (await ascSeller.commit(settlementId)).wait();
   console.log('      state:', STATE_NAMES[await state(ascSeller, settlementId)]);
   console.log('      isCommitted:', await ascSeller.isCommitted(settlementId));

@@ -73,10 +73,10 @@ export interface SettlementProof {
   /** Human label, e.g. `Ethereum Sepolia asset lock`. */
   label: string
   /** Which coordinator call consumed this proof. */
-  method: 'prepareAttestedLeg' | 'prepareNativeLeg' | 'submitProofs' | 'settle'
+  method: 'prepareAttestedLeg' | 'prepareNativeLeg' | 'ready' | 'settle'
   status: 'VERIFIED' | 'PENDING' | 'NOT_SUBMITTED'
-  /** How the proof was checked. Attestcoin quorum vs. direct same-chain read. */
-  verifiedVia: 'attestcoin' | 'native-state'
+  /** How the proof was checked. Attestcoin quorum vs. direct same-chain read vs. the coordinator gate itself. */
+  verifiedVia: 'attestcoin' | 'native-state' | 'coordinator'
   sourceChain: ChainRef | null
   /** Keccak commitment the coordinator stored, when one exists on chain. */
   commitment: string | null

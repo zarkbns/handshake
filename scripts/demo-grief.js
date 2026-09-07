@@ -30,14 +30,14 @@ const LOCK_ABI = [
 ];
 
 const ASC_ABI = [
+  'function registerTerms(bytes32 id, (uint256 leftChainId, uint256 rightChainId, address leftParty, address rightParty, address leftToken, address rightToken, uint256 leftAmount, uint256 rightAmount, bytes32 leftLockReference, bytes32 rightLockReference, uint256 expiry) terms)',
   'function prepareAttestedLeg(bytes32 id, bytes proof) payable',
   'function prepareNativeLeg(bytes32 id) payable',
-  'function submitProofs(bytes32 id, bytes attestations)',
   'function unlockHeld(bytes32 id)',
   'function withdrawBond()',
   'function bondAmount() view returns (uint256)',
   'function bondBurnBps() view returns (uint256)',
-  'function totalBurned() view returns (uint256)',
+  'function totalSlashed() view returns (uint256)',
   'function pendingWithdrawals(address) view returns (uint256)',
   'function getHandshake(bytes32 id) view returns (uint8 state, address initiator, uint256 prepareTime, uint256 readyTime, bytes32 leftCommit, bytes32 rightCommit, bytes32 manifest, bytes32 settlementEvidence)',
   'function isCommitted(bytes32 id) view returns (bool)',
@@ -84,7 +84,7 @@ async function main() {
   const ttl = Number(process.env.GRIEF_DEMO_TTL || 180);
   const expiry = Math.floor(Date.now() / 1000) + ttl;
 
-  const settlementId = deriveSettlementId({
+  const terms = {
     leftChainId: 11155111,
     rightChainId: 102031,
     leftParty: seller.address,
@@ -96,7 +96,8 @@ async function main() {
     leftLockReference: '0x' + 'cc'.repeat(32),
     rightLockReference: '0x' + 'dd'.repeat(32),
     expiry,
-  });
+  };
+  const settlementId = deriveSettlementId(terms);
 
   console.log('Griefing-demo settlement:', settlementId);
   console.log('Bond per party (wei):', bond.toString(), '| burn on dual-PREPARE stall:', burnBps / 100, '%');
@@ -112,20 +113,21 @@ async function main() {
   await (await token.approve(ccLockAddr, paymentAmount)).wait();
   await (await ccLock.lock(settlementId, env('DEMO_CTC_TOKEN_ADDRESS'), seller.address, paymentAmount, expiry)).wait();
 
-  // 2. Both parties PREPARE with a bond. This reaches the dual-PREPARE gate.
-  console.log('\n[2/6] Both parties post bonds and PREPARE...');
+  // 2. Both parties PREPARE with a bond. The second verified prepare lands READY directly —
+  //    then the settlement deliberately stalls without COMMIT. This is the case the bond
+  //    punishes: two parties who mutually locked each other into the READY window.
+  console.log('\n[2/6] registerTerms + both parties PREPARE (second leg -> READY)...');
+  await (await ascSeller.registerTerms(settlementId, [
+    terms.leftChainId, terms.rightChainId, terms.leftParty, terms.rightParty,
+    terms.leftToken, terms.rightToken, terms.leftAmount, terms.rightAmount,
+    terms.leftLockReference, terms.rightLockReference, terms.expiry,
+  ])).wait();
   await (await ascSeller.prepareAttestedLeg(settlementId, '0x' + 'ab'.repeat(64), { value: bond })).wait();
   await (await ascBuyer.prepareNativeLeg(settlementId, { value: bond })).wait();
-  console.log('      Coordinator state:', STATE_NAMES[await ascState(ascSeller, settlementId)], '(both legs prepared)');
-
-  // 3. Advance to READY, then deliberately DO NOT commit - this is the stall.
-  console.log('\n[3/6] submitProofs -> READY, then intentionally stalling (no COMMIT)...');
-  // The mock verifier accepts any non-empty attestation for the dual-PREPARE binding in this demo.
-  await (await ascSeller.submitProofs(settlementId, '0x' + 'ef'.repeat(32))).wait();
-  const record = await ascSeller.getHandshake(settlementId);
   console.log('      Coordinator state:', STATE_NAMES[await ascState(ascSeller, settlementId)], '- neither party commits.');
 
-  const burnedBefore = await ascSeller.totalBurned();
+  const record = await ascSeller.getHandshake(settlementId);
+  const burnedBefore = await ascSeller.totalSlashed();
 
   // 4. Wait for the coordinator prepare/ready timeout so unlockHeld becomes callable.
   const timeoutDeadline = Number(record.readyTime) + 3600; // TIMEOUT == 1 hour on-chain
@@ -149,13 +151,13 @@ async function main() {
   }
   console.log('\n      Coordinator state:', STATE_NAMES[await ascState(ascSeller, settlementId)]);
 
-  // 5. Show the burn actually bit: totalBurned rose, and each party can only reclaim the remainder.
-  const burnedAfter = await ascSeller.totalBurned();
+  // 5. Show the burn actually bit: totalSlashed rose, and each party can only reclaim the remainder.
+  const burnedAfter = await ascSeller.totalSlashed();
   const expectedBurnPerBond = (bond * BigInt(burnBps)) / 10000n;
   const expectedKeptPerBond = bond - expectedBurnPerBond;
   console.log('\n[5/6] Bond forfeiture:');
-  console.log('      totalBurned before:', formatEther(burnedBefore));
-  console.log('      totalBurned after: ', formatEther(burnedAfter), `(+${formatEther(burnedAfter - burnedBefore)})`);
+  console.log('      totalSlashed before:', formatEther(burnedBefore));
+  console.log('      totalSlashed after: ', formatEther(burnedAfter), `(+${formatEther(burnedAfter - burnedBefore)})`);
   console.log('      seller reclaimable:', formatEther(await ascSeller.pendingWithdrawals(seller.address)), '(expected', formatEther(expectedKeptPerBond) + ')');
   console.log('      buyer reclaimable: ', formatEther(await ascSeller.pendingWithdrawals(buyer.address)), '(expected', formatEther(expectedKeptPerBond) + ')');
 

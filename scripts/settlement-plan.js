@@ -56,7 +56,22 @@ function normalizePlan(input) {
     rightProof: input.rightProof,
     attestations: input.attestations,
   };
-  return { ...plan, settlementId: deriveSettlementId(plan) };
+  // The relayer registers these canonical terms on the coordinator (registerTerms) before
+  // any prepare, binding the settlement id to the exact on-chain economics.
+  const terms = {
+    leftChainId: plan.leftChainId,
+    rightChainId: plan.rightChainId,
+    leftParty: plan.leftParty,
+    rightParty: plan.rightParty,
+    leftToken: plan.leftToken,
+    rightToken: plan.rightToken,
+    leftAmount: plan.leftAmount,
+    rightAmount: plan.rightAmount,
+    leftLockReference: plan.leftLockReference,
+    rightLockReference: plan.rightLockReference,
+    expiry: plan.expiry,
+  };
+  return { ...plan, terms, settlementId: deriveSettlementId(terms) };
 }
 
 module.exports = { normalizePlan };

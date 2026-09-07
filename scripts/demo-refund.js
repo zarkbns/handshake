@@ -16,6 +16,7 @@ const LOCK_ABI = [
 ];
 
 const ASC_ABI = [
+  'function registerTerms(bytes32 id, (uint256 leftChainId, uint256 rightChainId, address leftParty, address rightParty, address leftToken, address rightToken, uint256 leftAmount, uint256 rightAmount, bytes32 leftLockReference, bytes32 rightLockReference, uint256 expiry) terms)',
   'function prepareNativeLeg(bytes32 id) payable',
   'function unlockHeld(bytes32 id)',
   'function withdrawBond()',
@@ -52,7 +53,7 @@ async function main() {
   const expiry = Math.floor(Date.now() / 1000) + LOCK_TTL_SECONDS;
 
   // A brand new settlement that will deliberately NOT complete, to prove unilateral recovery.
-  const settlementId = deriveSettlementId({
+  const terms = {
     leftChainId: 11155111,
     rightChainId: 102031,
     leftParty: seller.address,
@@ -64,7 +65,8 @@ async function main() {
     leftLockReference: '0x' + 'aa'.repeat(32),
     rightLockReference: '0x' + 'bb'.repeat(32),
     expiry,
-  });
+  };
+  const settlementId = deriveSettlementId(terms);
 
   console.log('Refund-demo settlement:', settlementId);
   console.log('Lock TTL:', LOCK_TTL_SECONDS, 'seconds\n');
@@ -81,9 +83,15 @@ async function main() {
   await (await ccLock.lock(settlementId, env('DEMO_CTC_TOKEN_ADDRESS'), seller.address, paymentAmount, expiry)).wait();
   console.log('      Locked. Lock state:', LOCK_STATE[Number((await ccLock.locks(settlementId)).state)]);
 
-  // 2. Register the native leg on the coordinator (settlement is now waiting on the missing leg).
-  console.log('\n[2/5] prepareNativeLeg (coordinator enters PREPARE)...');
+  // 2. Register the canonical terms + the native leg on the coordinator (settlement is now
+  //    waiting on the missing Ethereum leg, which never arrives).
+  console.log('\n[2/5] registerTerms + prepareNativeLeg (coordinator enters PREPARE)...');
   const bond = await asc.bondAmount();
+  await (await asc.registerTerms(settlementId, [
+    terms.leftChainId, terms.rightChainId, terms.leftParty, terms.rightParty,
+    terms.leftToken, terms.rightToken, terms.leftAmount, terms.rightAmount,
+    terms.leftLockReference, terms.rightLockReference, terms.expiry,
+  ])).wait();
   await (await asc.prepareNativeLeg(settlementId, { value: bond })).wait();
   console.log('      Coordinator state:', STATE_NAMES[Number((await asc.getHandshake(settlementId)).state)]);
   console.log('      isCommitted:', await asc.isCommitted(settlementId), '(never commits - counterparty absent)');

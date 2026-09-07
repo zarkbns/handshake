@@ -1,6 +1,13 @@
 const STATES = Object.freeze({ NONE: 0, PREPARE: 1, READY: 2, COMMITTED: 3, SETTLED: 4, HELD: 5 });
 
-const ACTIONS = Object.freeze({ PREPARE: 'prepareAttestedLeg', PREPARE_NATIVE: 'prepareNativeLeg', PROOFS: 'submitProofs', COMMIT: 'commit', HELD: 'unlockHeld', WITHDRAW_BOND: 'withdrawBond' });
+const ACTIONS = Object.freeze({
+  REGISTER_TERMS: 'registerTerms',
+  PREPARE: 'prepareAttestedLeg',
+  PREPARE_NATIVE: 'prepareNativeLeg',
+  COMMIT: 'commit',
+  HELD: 'unlockHeld',
+  WITHDRAW_BOND: 'withdrawBond',
+});
 
 // A settlement is terminal once it can no longer change on-chain state; the griefing bond, if any,
 // is resolved into pendingWithdrawals at COMMIT (full refund) or at unlockHeld (burn split / full
@@ -33,12 +40,16 @@ function createRelayer({ leftCoordinator, rightCoordinator, store, clock = () =>
       return execute(ACTIONS.HELD, id, record, leftCoordinator.unlockHeld);
     }
     if (state === STATES.NONE && plan.leftProof && plan.rightProof) {
+      // registerTerms binds the canonical id to the exact economics (idempotent on-chain);
+      // registration does not change the handshake state, so it must happen in the same
+      // pass as the prepares to avoid re-registering forever.
+      if (plan.terms) {
+        await execute(ACTIONS.REGISTER_TERMS, id, record, leftCoordinator.registerTerms, plan.terms);
+      }
       const leftAction = await execute(ACTIONS.PREPARE, id, record, leftCoordinator.prepareAttestedLeg, plan.leftProof);
-      const rightAction = await execute(ACTIONS.PREPARE_NATIVE, id, record, rightCoordinator.prepareNativeLeg);
+      // The second verified prepare transitions the settlement straight to READY.
+      const rightAction = await execute(ACTIONS.PREPARE_NATIVE, id, record, leftCoordinator.prepareNativeLeg);
       return { leftAction, rightAction };
-    }
-    if (state === STATES.PREPARE && plan.attestations) {
-      return execute(ACTIONS.PROOFS, id, record, leftCoordinator.submitProofs, plan.attestations);
     }
     if (state === STATES.READY) {
       return execute(ACTIONS.COMMIT, id, record, leftCoordinator.commit);

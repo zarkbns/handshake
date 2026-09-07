@@ -40,9 +40,13 @@ async function main() {
   const assetAmount = parseEther('10');
   const paymentAmount = parseEther('25');
   const expiry = Math.floor(Date.now() / 1000) + 3 * 24 * 60 * 60; // 3 days
+  const leftLockReference = '0x' + '11'.repeat(32);
+  const rightLockReference = '0x' + '22'.repeat(32);
 
-  // Deterministic, replay-resistant settlement id shared by BOTH legs.
-  const settlementId = deriveSettlementId({
+  // Deterministic, replay-resistant settlement id shared by BOTH legs. The same
+  // fields are registered on the coordinator via registerTerms before preparing,
+  // which enforces the id as the canonical binding of this exact trade.
+  const terms = {
     leftChainId: 11155111, // Ethereum Sepolia (attested leg)
     rightChainId: 102031, // Creditcoin (native leg)
     leftParty: seller.address,
@@ -51,10 +55,11 @@ async function main() {
     rightToken: demoCtcToken,
     leftAmount: assetAmount.toString(),
     rightAmount: paymentAmount.toString(),
-    leftLockReference: '0x' + '11'.repeat(32),
-    rightLockReference: '0x' + '22'.repeat(32),
+    leftLockReference,
+    rightLockReference,
     expiry,
-  });
+  };
+  const settlementId = deriveSettlementId(terms);
 
   console.log('Settlement ID:', settlementId);
 
@@ -93,9 +98,11 @@ async function main() {
   console.log('Creditcoin payment lock tx:', payReceipt.hash);
 
   // Persist the plan so downstream demo scripts (settle/release) can pick it up without
-  // re-deriving the id or hand-copying the lock tx hash between terminals.
+  // re-deriving the id or hand-copying the lock tx hash between terminals. The terms
+  // travel with the plan because demo-settle registers them on the coordinator.
   const plan = {
     settlementId,
+    terms,
     ethereumAssetLockTx: assetReceipt.hash,
     creditcoinPaymentLockTx: payReceipt.hash,
     expiry,

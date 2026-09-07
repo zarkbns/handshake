@@ -95,8 +95,9 @@ async function readLock(
  *
  * Nothing here is invented: a proof is only reported VERIFIED when the
  * coordinator holds a non-zero commitment for it, because `HandshakeASC` writes
- * those commitments strictly after `verifier.verifyPrepareLeg` /
- * `verifyPrepare` / `verifySettlement` return true.
+ * those commitments strictly after the leg verification passes (the attested
+ * leg through the Attestcoin precompile check, the native leg against the
+ * Creditcoin lock state).
  */
 function buildProofs(
   state: SettlementState,
@@ -144,37 +145,37 @@ function buildProofs(
     },
     {
       id: 'dual-prepare',
-      label: 'Dual-PREPARE quorum attestation',
-      method: 'submitProofs',
+      label: 'Dual-verified legs gate',
+      method: 'ready',
       status: manifest ? 'VERIFIED' : reached('READY') ? 'PENDING' : 'NOT_SUBMITTED',
-      verifiedVia: 'attestcoin',
+      verifiedVia: 'coordinator',
       sourceChain: null,
       commitment: manifest,
-      inclusionProof: Boolean(manifest),
-      continuityProof: Boolean(manifest),
+      inclusionProof: false,
+      continuityProof: false,
       verifiedAt: manifest && readyTime > 0 ? readyTime : null,
       note: manifest
         ? undefined
-        : 'Both leg commitments must be bound in a single attestation quorum before the settlement can reach READY.',
+        : 'READY opens automatically once both legs have been individually verified — the attested leg by an Attestcoin inclusion + continuity proof, the native leg against Creditcoin lock state. There is no separate aggregate-attestation step.',
     },
     {
       id: 'settlement-attestation',
-      label: 'Post-COMMIT settlement attestation',
+      label: 'Finalization evidence record',
       method: 'settle',
       status: settlementEvidence
         ? 'VERIFIED'
         : state === 'COMMITTED'
           ? 'PENDING'
           : 'NOT_SUBMITTED',
-      verifiedVia: 'attestcoin',
+      verifiedVia: 'coordinator',
       sourceChain: null,
       commitment: settlementEvidence,
-      inclusionProof: Boolean(settlementEvidence),
-      continuityProof: Boolean(settlementEvidence),
+      inclusionProof: false,
+      continuityProof: false,
       verifiedAt: null,
       note: settlementEvidence
         ? undefined
-        : 'Recorded only after both native legs finalize following the irreversible Creditcoin COMMIT.',
+        : 'Evidence recording after both native legs deliver post-COMMIT. Release authorization itself lives in the native locks.',
     },
   ]
 

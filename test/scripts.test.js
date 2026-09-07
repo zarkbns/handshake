@@ -2,9 +2,10 @@ const assert = require('node:assert/strict');
 const { normalizePlan } = require('../scripts/settlement-plan');
 const { ACTIONS, STATES, createRelayer } = require('../scripts/relayer');
 const { buildCommitDigest } = require('../scripts/commit-relay');
+const { deriveSettlementId } = require('../scripts/settlement-id');
 const { AbiCoder, Wallet, keccak256, solidityPackedKeccak256 } = require('ethers');
 
-const plan = normalizePlan({
+const termsFixture = {
   leftChainId: 11155111,
   rightChainId: 102031,
   leftParty: '0x00000000000000000000000000000000000000a1',
@@ -16,12 +17,16 @@ const plan = normalizePlan({
   leftLockReference: `0x${'11'.repeat(32)}`,
   rightLockReference: `0x${'22'.repeat(32)}`,
   expiry: 200,
+};
+
+const plan = normalizePlan({
+  ...termsFixture,
   leftProof: '0x01',
   rightProof: '0x02',
   attestations: '0x03',
 });
 
-async function testRelayerOrdersDualPrepareBeforeProofsAndCommit() {
+async function testRelayerOrdersTermsPrepareAndCommit() {
   let state = STATES.NONE;
   let now = 100;
   const calls = [];
@@ -30,9 +35,9 @@ async function testRelayerOrdersDualPrepareBeforeProofsAndCommit() {
   const client = (name) => ({
     contract: { runner: { address: name } },
     state: async () => state,
+    registerTerms: async () => { calls.push(name + 'registerTerms'); return { hash: name }; },
     prepareAttestedLeg: async () => { calls.push(name + 'prepareAttestedLeg'); state = STATES.PREPARE; return { hash: name }; },
-    prepareNativeLeg: async () => { calls.push(name + 'prepareNativeLeg'); state = STATES.PREPARE; return { hash: name }; },
-    submitProofs: async () => { calls.push(ACTIONS.PROOFS); state = STATES.READY; return { hash: 'proofs' }; },
+    prepareNativeLeg: async () => { calls.push(name + 'prepareNativeLeg'); state = STATES.READY; return { hash: name }; },
     commit: async () => { calls.push(ACTIONS.COMMIT); state = STATES.COMMITTED; return { hash: 'commit' }; },
     unlockHeld: async () => { calls.push(ACTIONS.HELD); state = STATES.HELD; return { hash: 'held' }; },
     pendingWithdrawals: async () => 0n,
@@ -40,14 +45,14 @@ async function testRelayerOrdersDualPrepareBeforeProofsAndCommit() {
   });
   const relayer = createRelayer({ leftCoordinator: client('left'), rightCoordinator: client('right'), store, clock: () => now });
 
+  // Pass 1: registerTerms + both prepares (registration leaves state NONE, so it rides
+  // the same pass; the second verified leg lands READY directly).
   await relayer.run(plan);
-  assert.deepEqual(calls, ['leftprepareAttestedLeg', 'rightprepareNativeLeg']);
+  assert.deepEqual(calls, ['leftregisterTerms', 'leftprepareAttestedLeg', 'leftprepareNativeLeg']);
+  // Pass 2: READY -> COMMIT. COMMITTED is terminal; no bond to withdraw.
   await relayer.run(plan);
   await relayer.run(plan);
-  assert.deepEqual(calls, ['leftprepareAttestedLeg', 'rightprepareNativeLeg', 'submitProofs', 'commit']);
-  // COMMITTED is terminal; with zero pending bond no withdrawal should be attempted.
-  await relayer.run(plan);
-  assert.deepEqual(calls, ['leftprepareAttestedLeg', 'rightprepareNativeLeg', 'submitProofs', 'commit']);
+  assert.deepEqual(calls, ['leftregisterTerms', 'leftprepareAttestedLeg', 'leftprepareNativeLeg', 'commit']);
 }
 
 async function testRelayerUsesHeldAfterExpiry() {
@@ -163,11 +168,42 @@ async function testCommitRelayDigestMatchesDemoReleaseEncoding() {
   );
 }
 
+// Byte-for-byte JS <-> Solidity settlement-id equivalence. The Solidity reference vectors were
+// produced by script/IdVectors.s.sol (forge script, console.logBytes32) over the exact same
+// fields as termsFixture — regenerate with: forge script script/IdVectors.s.sol
+async function testSettlementIdMatchesSolidityByteForByte() {
+  assert.equal(
+    deriveSettlementId(termsFixture),
+    '0xec0ec30610d7c3b9d7377ce85459c24a2e39739796047c35a65d46875c3171da',
+    'JS encoder drifted from the Solidity SettlementId.derive vector 1',
+  );
+  // Maximal-value vector: catches truncation, padding, or field-order drift.
+  const max = (n) => (2n ** 256n - BigInt(n)).toString();
+  assert.equal(
+    deriveSettlementId({
+      leftChainId: max(1),
+      rightChainId: max(1),
+      leftParty: '0xffffffffffffffffffffffffffffffffffffffff',
+      rightParty: '0x000000000000000000000000000000000000dead',
+      leftToken: '0xffffffffffffffffffffffffffffffffffffffff',
+      rightToken: '0x000000000000000000000000000000000000beef',
+      leftAmount: max(2),
+      rightAmount: max(3),
+      leftLockReference: '0x' + 'ff'.repeat(31) + 'fc',
+      rightLockReference: '0x' + 'ff'.repeat(31) + 'fb',
+      expiry: max(6),
+    }),
+    '0x74fee2f06bfa0c6fb9e83dcc46adf6f167441fd52274d6bb470be72e36b0487b',
+    'JS encoder drifted from the Solidity SettlementId.derive vector 2',
+  );
+}
+
 Promise.resolve()
-  .then(testRelayerOrdersDualPrepareBeforeProofsAndCommit)
+  .then(testRelayerOrdersTermsPrepareAndCommit)
   .then(testRelayerUsesHeldAfterExpiry)
   .then(testRelayerWithdrawsBondOnceAfterTerminalState)
   .then(testCommitRelayDigestMatchesOnChainAbiEncode)
   .then(testCommitRelaySignatureRecoversOperator)
   .then(testCommitRelayDigestMatchesDemoReleaseEncoding)
+  .then(testSettlementIdMatchesSolidityByteForByte)
   .then(() => process.stdout.write('script tests passed\n'));

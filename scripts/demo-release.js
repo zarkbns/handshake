@@ -8,6 +8,7 @@ const {
   keccak256,
   solidityPackedKeccak256,
   getBytes,
+  toUtf8Bytes,
 } = require('ethers');
 
 const coder = AbiCoder.defaultAbiCoder();
@@ -77,11 +78,13 @@ async function main() {
   console.log('isCommitted:', await asc.isCommitted(settlementId), '\n');
 
   // --- 1. Release the Creditcoin payment leg to the seller (reads COMMIT directly) ---
+  let ccReleaseHash = 'none';
   const ccLockState = Number((await ccLock.locks(settlementId)).state);
   if (ccLockState === 1) {
     console.log('[1/4] Releasing Creditcoin payment to seller...');
     const tx = await ccLock.release(settlementId);
     const rc = await tx.wait();
+    ccReleaseHash = rc.hash;
     console.log('      Released. tx:', rc.hash);
   } else {
     console.log('[1/4] Creditcoin payment leg already', LOCK_STATE[ccLockState]);
@@ -128,22 +131,27 @@ async function main() {
     process.stdout.write('.');
   }
   console.log('\n      Delay elapsed. Releasing Ethereum asset to buyer...');
+  let ethReleaseHash = 'none';
   const ethLockState = Number((await ethLock.locks(settlementId)).state);
   if (ethLockState === 1) {
     const tx = await ethLock.release(settlementId);
     const rc = await tx.wait();
+    ethReleaseHash = rc.hash;
     console.log('      Released. tx:', rc.hash);
   } else {
     console.log('      Ethereum asset leg already', LOCK_STATE[ethLockState]);
   }
 
   // --- 4. Record finalization evidence on the coordinator ---
-  console.log('\n[4/4] Recording settlement evidence (settle)...');
+  console.log('\n[4/4] Recording finalization evidence (settle)...');
   const record = await asc.getHandshake(settlementId);
   if (Number(record.state) === 3) {
+    // Honest evidence: the operator's finalization report (both delivery tx hashes).
+    // settle() is evidence-recording only — release authorization lives in the native
+    // locks, which checked the coordinator's COMMIT before letting either leg move.
     const attestation = coder.encode(
-      ['bytes32'],
-      [keccak256(coder.encode(['bytes32', 'bytes32'], [settlementId, record.manifest]))],
+      ['bytes32', 'bytes32'],
+      [keccak256(toUtf8Bytes('finalization:' + ccReleaseHash)), keccak256(toUtf8Bytes('delivery:' + ethReleaseHash))],
     );
     const tx = await asc.settle(settlementId, attestation);
     const rc = await tx.wait();

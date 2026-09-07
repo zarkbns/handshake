@@ -33,9 +33,9 @@ export function buildLifecycleStages(settlement: Settlement): LifecycleStage[] {
   const reached = (target: SettlementState) => index >= SETTLEMENT_STATES.indexOf(target)
 
   if (state === 'HELD') {
-    // Locate the failure point. `evidenceManifest` is written only by
-    // `submitProofs`, so its presence means READY was reached and COMMIT timed
-    // out instead of proof verification failing.
+    // Locate the failure point. `evidenceManifest` is written when the second
+    // verified prepare lands READY, so its presence means READY was reached and
+    // COMMIT timed out instead of leg verification failing.
     const reachedReady = Boolean(settlement.evidenceManifest)
     const bothPrepared = settlement.attestedLeg.prepared && settlement.nativeLeg.prepared
 

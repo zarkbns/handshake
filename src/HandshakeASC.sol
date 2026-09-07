@@ -307,10 +307,10 @@ contract HandshakeASC is IHandshake {
     }
 
     /// @dev Credits bond balances for pull-payment withdrawal. When `applyBurn` is true, a
-    ///      `bondBurnBps` fraction of each posted bond is permanently burned (added to
-    ///      `totalBurned` and never withdrawable); the remainder is credited back to each party.
-    ///      When false, both bonds are refunded in full. Zeroes the stored bonds so a settlement's
-    ///      bonds can only be resolved once.
+    ///      `bondBurnBps` fraction of each posted bond is permanently forfeited (added to
+    ///      `totalSlashed`, locked in this contract and never withdrawable); the remainder is
+    ///      credited back to each party. When false, both bonds are refunded in full. Zeroes the
+    ///      stored bonds so a settlement's bonds can only be resolved once.
     function _resolveBonds(bytes32 id, Handshake storage handshake, bool applyBurn) private {
         uint256 attestedBond = handshake.attestedBond;
         uint256 nativeBond = handshake.nativeBond;

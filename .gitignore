@@ -2,7 +2,9 @@ cache/
 out/
 session-ses_*.md
 node_modules/
-lib/
+# Foundry dependency dir at repo root only — an unanchored "lib/" would also
+# swallow web/lib/ (the frontend's core logic directory).
+/lib/
 broadcast/
 .env
 .env.*

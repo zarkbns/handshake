@@ -223,4 +223,124 @@ contract HandshakeASCTest {
         vm.expectRevert(abi.encodeWithSelector(HandshakeASC.NoBondToWithdraw.selector));
         handshake.withdrawBond();
     }
+
+    function testCannotCommitBeforeReady() public {
+        bytes32 id = keccak256("trade-premature-commit");
+        _prepareBoth(id);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandshakeASC.InvalidState.selector, IHandshake.State.PREPARE, IHandshake.State.READY)
+        );
+        handshake.commit(id);
+    }
+
+    function testCommitWindowExpiryFallsToHeld() public {
+        bytes32 id = keccak256("trade-commit-expiry");
+        _prepareBoth(id);
+        handshake.submitProofs(id, bytes("dual-attestation"));
+        vm.warp(block.timestamp + handshake.TIMEOUT());
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.CommitWindowExpired.selector));
+        handshake.commit(id);
+
+        handshake.unlockHeld(id);
+        (IHandshake.State state,,,,,,,) = handshake.getHandshake(id);
+        require(state == IHandshake.State.HELD, "not held after commit window expiry");
+    }
+
+    function testSecondPrepareLegRejectedAfterPrepareWindow() public {
+        bytes32 id = keccak256("trade-prepare-expiry");
+        vm.prank(ALICE);
+        handshake.prepareAttestedLeg{value: BOND}(id, bytes("seller-lock"));
+        vm.warp(block.timestamp + handshake.TIMEOUT());
+        nativeLock.setLocked(id, BOB);
+        vm.prank(BOB);
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.PrepareWindowExpired.selector));
+        handshake.prepareNativeLeg{value: BOND}(id);
+    }
+
+    function testSettleRequiresCommitFirst() public {
+        bytes32 id = keccak256("trade-settle-early");
+        _prepareBoth(id);
+        handshake.submitProofs(id, bytes("dual-attestation"));
+        vm.expectRevert(
+            abi.encodeWithSelector(HandshakeASC.InvalidState.selector, IHandshake.State.READY, IHandshake.State.COMMITTED)
+        );
+        handshake.settle(id, bytes("early"));
+    }
+
+    function testDoubleSettleRejected() public {
+        bytes32 id = keccak256("trade-double-settle");
+        _prepareBoth(id);
+        handshake.submitProofs(id, bytes("dual-attestation"));
+        handshake.commit(id);
+        handshake.settle(id, bytes("finalization-attestation"));
+        vm.expectRevert(
+            abi.encodeWithSelector(HandshakeASC.InvalidState.selector, IHandshake.State.SETTLED, IHandshake.State.COMMITTED)
+        );
+        handshake.settle(id, bytes("again"));
+    }
+
+    function testDoubleCommitRejected() public {
+        bytes32 id = keccak256("trade-double-commit");
+        _prepareBoth(id);
+        handshake.submitProofs(id, bytes("dual-attestation"));
+        handshake.commit(id);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandshakeASC.InvalidState.selector, IHandshake.State.COMMITTED, IHandshake.State.READY)
+        );
+        handshake.commit(id);
+    }
+
+    function testSettleRejectsInvalidAttestation() public {
+        bytes32 id = keccak256("trade-bad-settle");
+        _prepareBoth(id);
+        handshake.submitProofs(id, bytes("dual-attestation"));
+        handshake.commit(id);
+        verifier.setSettlementValid(false);
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.VerificationFailed.selector));
+        handshake.settle(id, bytes("forged"));
+    }
+
+    function testSubmitProofsRequiresBothLegsPrepared() public {
+        bytes32 id = keccak256("trade-single-leg-proof");
+        vm.prank(ALICE);
+        handshake.prepareAttestedLeg{value: BOND}(id, bytes("seller-lock"));
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.Unauthorized.selector));
+        handshake.submitProofs(id, bytes("premature-attestation"));
+    }
+
+    function testSamePartyCannotPrepareBothLegs() public {
+        bytes32 id = keccak256("trade-same-party");
+        vm.prank(ALICE);
+        handshake.prepareAttestedLeg{value: BOND}(id, bytes("seller-lock"));
+        nativeLock.setLocked(id, ALICE);
+        vm.prank(ALICE);
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.PartiesMustDiffer.selector));
+        handshake.prepareNativeLeg{value: BOND}(id);
+    }
+
+    function testUnlockHeldBeforeTimeoutRejected() public {
+        bytes32 id = keccak256("trade-early-held");
+        vm.prank(ALICE);
+        handshake.prepareAttestedLeg{value: BOND}(id, bytes("seller-lock"));
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.TimeoutNotReached.selector));
+        handshake.unlockHeld(id);
+    }
+
+    function testUnlockHeldRejectsUnknownSettlement() public {
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.SettlementNotFound.selector));
+        handshake.unlockHeld(keccak256("never-seen"));
+    }
+
+    function testPrepareRejectsZeroSettlementId() public {
+        vm.prank(ALICE);
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.InvalidSettlementId.selector));
+        handshake.prepareAttestedLeg{value: BOND}(bytes32(0), bytes("seller-lock"));
+    }
+
+    function testPrepareRejectsEmptyProof() public {
+        bytes32 id = keccak256("trade-empty-proof");
+        vm.prank(ALICE);
+        vm.expectRevert(abi.encodeWithSelector(HandshakeASC.EmptyProof.selector));
+        handshake.prepareAttestedLeg{value: BOND}(id, bytes(""));
+    }
 }

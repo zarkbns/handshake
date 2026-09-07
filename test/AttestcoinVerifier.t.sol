@@ -60,4 +60,21 @@ contract AttestcoinVerifierTest {
         bytes memory attestation = abi.encode(keccak256("x"));
         require(!verifier.verifySettlement(attestation, id, bytes32(0)), "should reject empty");
     }
+
+    function testPrepareAttestationIsBoundToSettlementId() public view {
+        bytes32 id1 = keccak256("trade-1");
+        bytes32 id2 = keccak256("trade-2");
+        bytes32 left = keccak256("left");
+        bytes32 right = keccak256("right");
+        bytes memory attestation = abi.encode(keccak256(abi.encode(id1, left, right)));
+        require(!verifier.verifyPrepare(attestation, id2, left, right), "replayed attestation must not verify");
+    }
+
+    function testSettlementAttestationIsBoundToManifest() public view {
+        bytes32 id = keccak256("trade");
+        bytes32 manifest1 = keccak256("manifest-1");
+        bytes32 manifest2 = keccak256("manifest-2");
+        bytes memory attestation = abi.encode(keccak256(abi.encode(id, manifest1)));
+        require(!verifier.verifySettlement(attestation, id, manifest2), "replayed settlement attestation must not verify");
+    }
 }

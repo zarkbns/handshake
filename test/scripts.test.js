@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { normalizePlan } = require('../scripts/settlement-plan');
 const { ACTIONS, STATES, createRelayer } = require('../scripts/relayer');
-const { buildCommitDigest } = require('../scripts/commit-relay');
+const { buildCommitDigest, resolveScanWindow } = require('../scripts/commit-relay');
 const { deriveSettlementId } = require('../scripts/settlement-id');
 const { AbiCoder, Wallet, keccak256, solidityPackedKeccak256 } = require('ethers');
 
@@ -198,6 +198,35 @@ async function testSettlementIdMatchesSolidityByteForByte() {
   );
 }
 
+// The relay's event scan must be bounded: the public Creditcoin RPC rejects full-history
+// eth_getLogs (see chain-reader.ts + demo-release.js, which cap their windows for the same
+// reason). The finality-safe upper bound must also hold so a not-yet-final commit is never
+// relayed.
+async function testCommitRelayScanWindowIsBounded() {
+  // Default window: maxScanBlocks (5000) back from head, upper bound at head - finality.
+  assert.deepEqual(
+    resolveScanWindow({ head: 100000, finalityConfirmations: 10 }),
+    { fromBlock: 95000, toBlock: 99990 },
+    'default window must be [head-5000, head-finality]',
+  );
+  // An explicit fromBlock widens the lower bound but the upper bound stays finality-safe.
+  assert.deepEqual(
+    resolveScanWindow({ head: 100000, finalityConfirmations: 10, fromBlock: 0 }),
+    { fromBlock: 0, toBlock: 99990 },
+    'explicit fromBlock must widen only the lower bound',
+  );
+  // The window never goes below zero.
+  assert.deepEqual(
+    resolveScanWindow({ head: 5, finalityConfirmations: 10 }),
+    { fromBlock: 0, toBlock: -5 },
+    'clamped lower bound; empty window when head < finality',
+  );
+  // Input validation.
+  assert.throws(() => resolveScanWindow({ head: -1, finalityConfirmations: 10 }), TypeError);
+  assert.throws(() => resolveScanWindow({ head: 100, finalityConfirmations: 0 }), TypeError);
+  assert.throws(() => resolveScanWindow({ head: 100, finalityConfirmations: 10, maxScanBlocks: 0 }), TypeError);
+}
+
 Promise.resolve()
   .then(testRelayerOrdersTermsPrepareAndCommit)
   .then(testRelayerUsesHeldAfterExpiry)
@@ -206,4 +235,5 @@ Promise.resolve()
   .then(testCommitRelaySignatureRecoversOperator)
   .then(testCommitRelayDigestMatchesDemoReleaseEncoding)
   .then(testSettlementIdMatchesSolidityByteForByte)
+  .then(testCommitRelayScanWindowIsBounded)
   .then(() => process.stdout.write('script tests passed\n'));

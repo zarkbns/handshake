@@ -38,6 +38,29 @@ async function buildCommitSignature({ ethereum, commitStatusAddress, operator, s
   return signed.serialized;
 }
 
+/**
+ * Resolves the block range an event scan should cover.
+ *
+ * The public Creditcoin RPC rejects wide eth_getLogs ranges, so the default window is
+ * bounded: [head - maxScanBlocks, head - finalityConfirmations]. An explicit `fromBlock`
+ * widens the lower bound (still clamped to 0); the finality-safe upper bound always holds
+ * so a not-yet-final commit is never relayed.
+ */
+function resolveScanWindow({ head, finalityConfirmations, fromBlock, maxScanBlocks = 5000 }) {
+  if (!Number.isSafeInteger(head) || head < 0) throw new TypeError('head must be a non-negative integer');
+  if (!Number.isSafeInteger(finalityConfirmations) || finalityConfirmations < 1) {
+    throw new TypeError('finalityConfirmations must be a positive safe integer');
+  }
+  if (!Number.isSafeInteger(maxScanBlocks) || maxScanBlocks < 1) {
+    throw new TypeError('maxScanBlocks must be a positive safe integer');
+  }
+
+  const toBlock = head - finalityConfirmations; // only finalized blocks are scanned
+  const lowerBound = fromBlock === undefined ? head - maxScanBlocks : fromBlock;
+  const fromBlockResolved = Math.max(0, lowerBound);
+  return { fromBlock: fromBlockResolved, toBlock };
+}
+
 function createCommitRelay({
   creditcoinRpcUrl = requiredEnv('CREDITCOIN_RPC_URL'),
   ethereumRpcUrl = requiredEnv('ETHEREUM_SEPOLIA_RPC_URL'),
@@ -78,11 +101,14 @@ function createCommitRelay({
   }
 
   /// Relays every Creditcoin `Committed` event that has reached the configured finality depth.
-  async function relayFinalizedCommits({ fromBlock = 0 } = {}) {
+  /// The scan window is bounded (default 5000 blocks back from the finality-safe head) because
+  /// the public Creditcoin RPC rejects full-history eth_getLogs; pass an explicit `fromBlock`
+  /// to rescan further back.
+  async function relayFinalizedCommits({ fromBlock, maxScanBlocks = 5000 } = {}) {
     const head = await creditcoin.getBlockNumber();
-    const safeHead = Math.max(fromBlock, head - finalityConfirmations);
-    if (safeHead < fromBlock) return [];
-    const events = await coordinator.queryFilter('Committed', fromBlock, safeHead);
+    const window = resolveScanWindow({ head, finalityConfirmations, fromBlock, maxScanBlocks });
+    if (window.fromBlock > window.toBlock) return [];
+    const events = await coordinator.queryFilter('Committed', window.fromBlock, window.toBlock);
 
     const reports = [];
     for (const event of events) {
@@ -97,4 +123,4 @@ function createCommitRelay({
   return { reportCommitted, relayFinalizedCommits };
 }
 
-module.exports = { STATES, buildCommitDigest, createCommitRelay };
+module.exports = { STATES, buildCommitDigest, createCommitRelay, resolveScanWindow };

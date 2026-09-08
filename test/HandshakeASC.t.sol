@@ -474,6 +474,71 @@ contract HandshakeASCTest {
         require(_state(id) == IHandshake.State.HELD, "not held after commit window expiry");
     }
 
+    /// @dev Registers canonical terms with an explicit lock expiry (defaults to
+    ///      block.timestamp + EXPIRY) and returns the derived id.
+    function _registerTermsWithExpiry(uint256 expiry) internal returns (bytes32 id) {
+        IHandshake.Terms memory t = IHandshake.Terms({
+            leftChainId: 11155111,
+            rightChainId: CC_CHAIN_ID,
+            leftParty: ALICE,
+            rightParty: BOB,
+            leftToken: ASSET_TOKEN,
+            rightToken: PAYMENT_TOKEN,
+            leftAmount: ASSET_AMOUNT,
+            rightAmount: PAYMENT_AMOUNT,
+            leftLockReference: keccak256("asset-lock-ref"),
+            rightLockReference: keccak256("cash-lock-ref"),
+            expiry: expiry
+        });
+        id = SettlementId.derive(
+            t.leftChainId, t.rightChainId, t.leftParty, t.rightParty, t.leftToken, t.rightToken,
+            t.leftAmount, t.rightAmount, t.leftLockReference, t.rightLockReference, t.expiry
+        );
+        handshake.registerTerms(id, t);
+        verifier.setStrictLeg(
+            IAttestationVerifier.ExpectedLeg({
+                token: ASSET_TOKEN,
+                recipient: BOB,
+                amount: ASSET_AMOUNT,
+                expiry: expiry
+            })
+        );
+    }
+
+    function testCommitRevertsAfterLockExpiry() public {
+        // Lock expiry falls INSIDE the READY commit window: expiry < readyTime + TIMEOUT.
+        // Committing after expiry would let a party refund its own leg and still take
+        // delivery of the counterparty's leg, so the coordinator must close the window.
+        uint256 expiry = block.timestamp + handshake.TIMEOUT() / 2;
+        bytes32 id = _registerTermsWithExpiry(expiry);
+        _prepareBoth(id, PAYMENT_TOKEN, ALICE, PAYMENT_AMOUNT, expiry);
+
+        vm.warp(expiry); // inside the commit window (past readyTime + TIMEOUT/2), at lock expiry
+        require(block.timestamp < _readyDeadline(id), "precondition: still inside the commit window");
+        vm.expectRevert(HandshakeASC.CommitAfterLockExpiry.selector);
+        handshake.commit(id);
+
+        // The settlement is still recoverable: the normal timeout path stays open.
+        vm.warp(expiry + handshake.TIMEOUT());
+        handshake.unlockHeld(id);
+        require(_state(id) == IHandshake.State.HELD, "not held after expiry-closed commit window");
+    }
+
+    function _readyDeadline(bytes32 id) private view returns (uint256) {
+        (, , , uint256 readyTime, , , ,) = handshake.getHandshake(id);
+        return readyTime + handshake.TIMEOUT();
+    }
+
+    function testCommitBeforeLockExpiryStillSucceeds() public {
+        // Guard against over-tightening: a commit well inside both windows must succeed.
+        uint256 expiry = block.timestamp + 10 * handshake.TIMEOUT();
+        bytes32 id = _registerTermsWithExpiry(expiry);
+        _prepareBoth(id, PAYMENT_TOKEN, ALICE, PAYMENT_AMOUNT, expiry);
+
+        handshake.commit(id);
+        require(handshake.isCommitted(id), "commit before lock expiry should succeed");
+    }
+
     function testSecondPrepareLegRejectedAfterPrepareWindow() public {
         bytes32 id = _registerTerms();
         vm.prank(ALICE);

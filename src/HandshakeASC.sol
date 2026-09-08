@@ -86,6 +86,7 @@ contract HandshakeASC is IHandshake {
     error TermsMismatch(bytes32 expected, bytes32 actual);
     error LegEconomicsMismatch();
     error RightChainIdMismatch(uint256 expected, uint256 actual);
+    error CommitAfterLockExpiry();
 
     IAttestationVerifier public immutable verifier;
     INativeSettlementLock public immutable creditcoinLock;
@@ -263,6 +264,11 @@ contract HandshakeASC is IHandshake {
     function commit(bytes32 id) external onlyState(id, State.READY) {
         Handshake storage handshake = handshakes[id];
         if (block.timestamp >= handshake.readyTime + TIMEOUT) revert CommitWindowExpired();
+        // DvP atomicity: once the canonical lock expiry has passed, the native locks'
+        // permissionless refund path is live. Committing after that point would let a
+        // party refund its own leg AND take delivery of the counterparty's leg, so the
+        // commit window is closed by the lock expiry, not just the READY timeout.
+        if (block.timestamp >= terms[id].expiry) revert CommitAfterLockExpiry();
 
         handshake.state = State.COMMITTED;
         // Both legs progressed to the irreversible boundary: refund both bonds in full.

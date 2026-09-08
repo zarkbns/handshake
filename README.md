@@ -66,6 +66,53 @@ both chains refund natively. Recovery never depends on attestor uptime.
 
 ---
 
+## Attestcoin Protocol Integration
+
+Handshake's entire trust model rests on the Attestcoin Protocol. Without it, there
+is no way for the Creditcoin coordinator to know that a lock on Ethereum Sepolia
+exists — the protocol is the *only* bridge of information between the two chains,
+and it is integrated at three levels:
+
+**1. On-chain proof verification via the Block Prover precompile (`0x0FD2`).**
+`AttestcoinVerifier` (`src/AttestcoinVerifier.sol`) is a production adapter against
+`@gluwa/usc-contracts`' `INativeQueryVerifier`. For every attested-leg prepare it
+submits the raw proof bundle to the precompile, which checks the attestor quorum's
+BLS-aggregated signatures, the Merkle inclusion proof of the source transaction,
+and the continuity proof binding the attested header to the source chain. No
+centralized oracle operator is involved at any point.
+
+**2. Proof-to-settlement binding with full economics matching.** The verifier
+decodes the precompile-verified transaction receipt, extracts the `Locked` event,
+and requires every field to match the coordinator's registered canonical terms:
+settlement id (event topic 1), token (topic 2), depositor == caller (topic 3), and
+recipient, amount, and expiry (event data) — see `AttestcoinVerifier.sol:84-102`.
+A proof of any other lock, or of the same lock replayed against different terms,
+is rejected: the settlement id is itself derived from the full terms
+(`SettlementId.derive`), so "which lock is this proof about?" is answered
+cryptographically, not by bookkeeping.
+
+**3. Off-chain proof production through the USC SDK.** `scripts/attestcoin-proof.js`
+uses `@gluwa/usc-sdk`'s `ProofBuilder` against the Attestcoin proof-builder service
+to fetch attestor-attested headers, generate the inclusion + continuity proof for
+the exact lock transaction, and pre-verify it against the same precompile via
+`PrecompileBlockProver.verifySingle` before submission — so the demo path exercises
+the real SDK end to end (`npm run prove:ethereum`).
+
+The native (Creditcoin) leg needs no proof: it is verified by reading lock state on
+the coordinator's own chain. One integration boundary is documented rather than
+hidden — Attestcoin *writability* (Creditcoin → source-chain messaging) is not yet
+available, so the Ethereum-side release adapter (`OperatorCommitStatus`) accepts
+operator-signed COMMIT reports as an explicitly scoped stand-in, signature-bound to
+chain id + deployment + settlement id, with the message-verified inbox listed as the
+production replacement (see the trust-model note and GUIDE.md).
+
+**Try it live:** `npm run demo:lock` → wait ~2 min for Sepolia attestation →
+`npm run demo:settle` (generates a fresh Attestcoin proof and submits it through
+`prepareAttestedLeg`) → `npm run demo:release`. Every step is a real on-chain
+transaction on Creditcoin Testnet + Ethereum Sepolia.
+
+---
+
 ## Try Handshake in 3 minutes
 
 Against the deployed public testnets (read-only checks — no keys needed):
@@ -79,12 +126,12 @@ npm test                                 # 49 Solidity tests + script + web suit
 # Verify the live deployment is healthy (read-only, ~30s):
 export CREDITCOIN_RPC_URL=https://rpc.cc3-testnet.creditcoin.network
 export ETHEREUM_SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
-export HANDSHAKE_ASC_ADDRESS=0x905E0f141D8B5333F49755B08395d1beAdEd74Ab
-export ATTESTCOIN_VERIFIER_ADDRESS=0xcB04133cEeD70bbb9692D528F21B7205838eAa13
-export CREDITCOIN_COMMIT_STATUS_ADDRESS=0x2002dcc1341707e7a6D6d5dC49EE7e610B9d4680
-export CREDITCOIN_LOCK_ADDRESS=0xb3e9cB40A52EF777A29b6198f4c2D8d19893a01D
-export ETHEREUM_LOCK_ADDRESS=0x999326d027316C6CD0156a39ac8d3792f2EFC802
-export ETHEREUM_COMMIT_STATUS_ADDRESS=0xbD42128dFDd2B381fF416FffE8D699F840562067
+export HANDSHAKE_ASC_ADDRESS=0xf01767EC94F8E9AfcD6266E63b6De3087cF56299
+export ATTESTCOIN_VERIFIER_ADDRESS=0x06D3Fa27DeAda8C295267ecBB3A5054Ec2ADd0bc
+export CREDITCOIN_COMMIT_STATUS_ADDRESS=0xf4A6A12Ad234139d75DbBaD69EA048Fe217B73cF
+export CREDITCOIN_LOCK_ADDRESS=0x4A6a8fc2d9D02336D2C69983EFbc9957419e3Ebf
+export ETHEREUM_LOCK_ADDRESS=0x07c4585391d0655E6f191535e6BeA57385e41b49
+export ETHEREUM_COMMIT_STATUS_ADDRESS=0xBD448B840aB06a8aD9F9ad278534F8F22724e247
 npm run verify
 ```
 
@@ -159,6 +206,13 @@ attestation path is inherited, not eliminated — Handshake claims verifiable
 settlement coordination, not bank-grade legal finality. See
 [GUIDE.md](./GUIDE.md) for the full trust analysis.
 
+> **Deployment note (this demo):** the public testnet deployment uses one wallet
+> for the deployer, seller, and operator roles. `OperatorCommitStatus` trusts the
+> operator to only report COMMITs actually finalized on Creditcoin, so in this
+> configuration that trust is held by the same party as the seller — acceptable
+> for a demo, but a production deployment MUST run the relay worker on a
+> dedicated operator key (see DEPLOYMENT.md).
+
 ---
 
 ## Architecture
@@ -176,17 +230,19 @@ settlement coordination, not bank-grade legal finality. See
 
 | Contract | Network | Address |
 |---|---|---|
-| `HandshakeASC` | Creditcoin Testnet | `0x905E0f141D8B5333F49755B08395d1beAdEd74Ab` |
-| `AttestcoinVerifier` | Creditcoin Testnet | `0xcB04133cEeD70bbb9692D528F21B7205838eAa13` |
-| `CreditcoinCommitStatus` | Creditcoin Testnet | `0x2002dcc1341707e7a6D6d5dC49EE7e610B9d4680` |
-| Creditcoin payment lock | Creditcoin Testnet | `0xb3e9cB40A52EF777A29b6198f4c2D8d19893a01D` |
-| `OperatorCommitStatus` | Ethereum Sepolia | `0xbD42128dFDd2B381fF416FffE8D699F840562067` |
-| Ethereum asset lock | Ethereum Sepolia | `0x999326d027316C6CD0156a39ac8d3792f2EFC802` |
+| `HandshakeASC` | Creditcoin Testnet | `0xf01767EC94F8E9AfcD6266E63b6De3087cF56299` |
+| `AttestcoinVerifier` | Creditcoin Testnet | `0x06D3Fa27DeAda8C295267ecBB3A5054Ec2ADd0bc` |
+| `CreditcoinCommitStatus` | Creditcoin Testnet | `0xf4A6A12Ad234139d75DbBaD69EA048Fe217B73cF` |
+| Creditcoin payment lock | Creditcoin Testnet | `0x4A6a8fc2d9D02336D2C69983EFbc9957419e3Ebf` |
+| `OperatorCommitStatus` | Ethereum Sepolia | `0xBD448B840aB06a8aD9F9ad278534F8F22724e247` |
+| Ethereum asset lock | Ethereum Sepolia | `0x07c4585391d0655E6f191535e6BeA57385e41b49` |
 
-> Note: the deployed coordinator predates the security-remediation upgrade
-> (canonical terms binding, full leg-economics verification, griefing bonds) —
-> `npm run verify` reports the missing bond config as `WARN`. The repo code is
-> the source of truth; redeploy before running the live demos.
+> The deployed coordinator carries the full security-remediation upgrade: canonical
+> terms binding, full leg-economics verification, griefing bonds (0.01 CTC, 50%
+> burn split), and an expiry-bound commit window — `commit` reverts once the
+> canonical lock expiry is reached, so the permissionless lock refund can never be
+> combined with a late commit to take both legs. `npm run verify` confirms the
+> deployment with no `WARN`.
 
 ### Timeout recovery keeper
 

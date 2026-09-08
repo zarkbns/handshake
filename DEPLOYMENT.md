@@ -110,11 +110,14 @@ npm run demo:refund    # buyer locks payment, nobody delivers the Ethereum leg;
                        # after lock expiry the buyer refunds unilaterally — no attestor
 ```
 
-**Griefing-bond demo** (dual-PREPARE then mutual stall): `node
-scripts/demo-grief.js` burns the configured bond split when the READY window
-times out. Requires a coordinator deployed **with** bond support — the current
-public deployment predates it (`npm run verify` shows the `WARN`), so redeploy
-`DeployCreditcoin` first if you want to run this on testnet.
+**Griefing-bond demo** (dual-PREPARE then mutual stall): the burn-split path is proven
+by the Foundry suite — `forge test --match-test testDualPrepareStallBurnsConfiguredSplit`
+(`test/HandshakeASC.t.sol`). It is deliberately **not** runnable against the public
+testnet coordinator: `node scripts/demo-grief.js` fabricates an attested-leg proof, and
+the real `AttestcoinVerifier` rejects any unproven leg at `prepareAttestedLeg` — it
+fails closed by design. A real deployment must never accept a leg that was not proven
+through Attestcoin; use `demo-settle.js` for the genuine cross-chain proof path and the
+Foundry test (or a local mock-verifier deployment) for the economics demo.
 
 ## What each contract does
 

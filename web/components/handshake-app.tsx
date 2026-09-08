@@ -67,28 +67,6 @@ export function Landing() {
             </span>
           </div>
         </div>
-        <div className="dot-orbit" aria-hidden="true">
-          <svg className="dot-cloud" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-            <defs>
-              <pattern id="dotPattern" width="7" height="7" patternUnits="userSpaceOnUse">
-                <circle cx="3.5" cy="3.5" r="1.2" fill="#aaa" />
-              </pattern>
-              <mask id="handshakeMask">
-                <rect width="200" height="200" fill="black" />
-                <rect x="100" y="50" width="32" height="110" rx="16" fill="white" />
-                <rect x="104" y="22" width="7" height="32" rx="3.5" fill="white" />
-                <rect x="116" y="16" width="7" height="38" rx="3.5" fill="white" />
-                <rect x="128" y="22" width="7" height="32" rx="3.5" fill="white" />
-                <rect x="68" y="50" width="32" height="110" rx="16" fill="white" />
-                <rect x="89" y="22" width="7" height="32" rx="3.5" fill="white" />
-                <rect x="77" y="16" width="7" height="38" rx="3.5" fill="white" />
-                <rect x="65" y="22" width="7" height="32" rx="3.5" fill="white" />
-              </mask>
-            </defs>
-            <rect width="200" height="200" fill="url(#dotPattern)" mask="url(#handshakeMask)" />
-          </svg>
-          <div className="orbit-line" />
-        </div>
       </section>
 
       {/* ============================================================ PROTOCOL */}

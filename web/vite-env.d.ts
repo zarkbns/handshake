@@ -7,3 +7,7 @@ interface Window {
     removeListener?: (event: string, handler: (...args: unknown[]) => void) => void
   }
 }
+
+interface ImportMetaEnv {
+  readonly VITE_PRIVY_APP_ID?: string
+}

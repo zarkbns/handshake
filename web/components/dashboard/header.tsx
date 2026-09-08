@@ -1,4 +1,5 @@
 import { ChevronDown, Menu, X } from 'lucide-react'
+import { usePrivy } from '@privy-io/react-auth'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 
@@ -83,28 +84,18 @@ function NavGroup({ item, pathname }: { item: NavItem; pathname: string }) {
   )
 }
 
-const WALLET_SESSION_KEY = 'hs_wallet_address'
-
-function readSessionAddress(): string {
-  try {
-    return sessionStorage.getItem(WALLET_SESSION_KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
-
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`
 }
 
 /**
- * Account menu. The dashboard is read-only — the "connection" is the address label
- * captured on /connect, held in sessionStorage, and never used to sign anything.
+ * Account menu. The dashboard is read-only — Privy supplies the authenticated
+ * identity and this UI never uses it to sign anything.
  * Disconnect clears the label and returns to the connect screen.
  */
 function AccountMenu() {
+  const { user, logout } = usePrivy()
   const [open, setOpen] = useState(false)
-  const [address, setAddress] = useState(() => readSessionAddress())
   const ref = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const pathname = useLocation().pathname
@@ -128,17 +119,11 @@ function AccountMenu() {
   // Close on navigation and re-read the session label in case /connect changed it.
   useEffect(() => {
     setOpen(false)
-    setAddress(readSessionAddress())
   }, [pathname])
 
-  function disconnect() {
-    try {
-      sessionStorage.removeItem(WALLET_SESSION_KEY)
-    } catch {
-      // Nothing to clean up if storage is unavailable.
-    }
-    setAddress('')
+  async function disconnect() {
     setOpen(false)
+    await logout()
     navigate('/connect')
   }
 
@@ -153,16 +138,16 @@ function AccountMenu() {
         onMouseEnter={() => setOpen(true)}
       >
         <span className="ds-avatar" aria-hidden="true">
-          {address ? shortAddress(address).slice(0, 2).toUpperCase() : 'OP'}
+          {(user?.wallet?.address ?? user?.smartWallet?.address ?? user?.id ?? 'OP').slice(0, 2).toUpperCase()}
         </span>
-        <span>{address ? shortAddress(address) : 'Account'}</span>
+        <span>{user?.wallet?.address ? shortAddress(user.wallet.address) : 'Account'}</span>
         <ChevronDown size={9} aria-hidden="true" />
       </button>
       {open ? (
         <div className="ds-nav-menu" role="menu" style={{ left: 'auto', right: 0 }}>
-          {address ? (
+          {user?.wallet?.address ? (
             <span role="menuitem" style={{ cursor: 'default', opacity: 0.7 }}>
-              {shortAddress(address)}
+              {shortAddress(user.wallet.address)}
             </span>
           ) : null}
           <Link role="menuitem" to="/connect">

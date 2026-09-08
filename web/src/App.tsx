@@ -12,6 +12,7 @@ import { SettlementDetailPage } from './pages/SettlementDetailPage'
 import { SettlementsPage } from './pages/SettlementsPage'
 import { SdkPage } from './pages/SdkPage'
 import { WebhooksPage } from './pages/WebhooksPage'
+import { AuthenticatedRoute } from './privy'
 
 export function App() {
   return (
@@ -19,7 +20,7 @@ export function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/connect" element={<ConnectPage />} />
 
-      <Route path="/dashboard" element={<DashboardLayout />}>
+      <Route path="/dashboard" element={<AuthenticatedRoute><DashboardLayout /></AuthenticatedRoute>}>
         <Route index element={<OverviewPage />} />
         <Route path="settlements" element={<SettlementsPage />} />
         <Route path="settlements/:id" element={<SettlementDetailPage />} />

@@ -4,10 +4,22 @@ import { BrowserProvider } from 'ethers'
 
 import { Logo } from '@/components/handshake-app'
 
+// Ephemeral session label for the header account menu. The dashboard is read-only and
+// never transacts, so this stores only the connected address — never keys or signatures.
+const WALLET_SESSION_KEY = 'hs_wallet_address'
+
+function readSessionAddress(): string {
+  try {
+    return sessionStorage.getItem(WALLET_SESSION_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 export function ConnectPage() {
   const navigate = useNavigate()
-  const [connected, setConnected] = useState(false)
-  const [addr, setAddr] = useState('')
+  const [connected, setConnected] = useState(() => Boolean(readSessionAddress()))
+  const [addr, setAddr] = useState(() => readSessionAddress())
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
 
@@ -22,8 +34,14 @@ export function ConnectPage() {
       }
       const provider = new BrowserProvider(ethereum)
       const signer = await provider.getSigner()
-      setAddr(await signer.getAddress())
+      const address = await signer.getAddress()
+      setAddr(address)
       setConnected(true)
+      try {
+        sessionStorage.setItem(WALLET_SESSION_KEY, address)
+      } catch {
+        // Session storage unavailable — the in-page state still works for this visit.
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not connect to your wallet.')
       return
@@ -36,6 +54,11 @@ export function ConnectPage() {
     setConnected(false)
     setAddr('')
     setError('')
+    try {
+      sessionStorage.removeItem(WALLET_SESSION_KEY)
+    } catch {
+      // Ignore — nothing to clean up if storage is unavailable.
+    }
   }
 
   function proceed() {

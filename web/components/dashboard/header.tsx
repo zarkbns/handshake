@@ -1,5 +1,5 @@
 import { ChevronDown, Menu, X } from 'lucide-react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 
 import { NAV_ITEMS, type NavItem } from '@/lib/handshake/navigation'
@@ -83,6 +83,105 @@ function NavGroup({ item, pathname }: { item: NavItem; pathname: string }) {
   )
 }
 
+const WALLET_SESSION_KEY = 'hs_wallet_address'
+
+function readSessionAddress(): string {
+  try {
+    return sessionStorage.getItem(WALLET_SESSION_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function shortAddress(address: string): string {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`
+}
+
+/**
+ * Account menu. The dashboard is read-only — the "connection" is the address label
+ * captured on /connect, held in sessionStorage, and never used to sign anything.
+ * Disconnect clears the label and returns to the connect screen.
+ */
+function AccountMenu() {
+  const [open, setOpen] = useState(false)
+  const [address, setAddress] = useState(() => readSessionAddress())
+  const ref = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+  const pathname = useLocation().pathname
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  // Close on navigation and re-read the session label in case /connect changed it.
+  useEffect(() => {
+    setOpen(false)
+    setAddress(readSessionAddress())
+  }, [pathname])
+
+  function disconnect() {
+    try {
+      sessionStorage.removeItem(WALLET_SESSION_KEY)
+    } catch {
+      // Nothing to clean up if storage is unavailable.
+    }
+    setAddress('')
+    setOpen(false)
+    navigate('/connect')
+  }
+
+  return (
+    <div className="ds-nav-item" ref={ref} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        className="ds-nav-trigger ds-account"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((value) => !value)}
+        onMouseEnter={() => setOpen(true)}
+      >
+        <span className="ds-avatar" aria-hidden="true">
+          {address ? shortAddress(address).slice(0, 2).toUpperCase() : 'OP'}
+        </span>
+        <span>{address ? shortAddress(address) : 'Account'}</span>
+        <ChevronDown size={9} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="ds-nav-menu" role="menu" style={{ left: 'auto', right: 0 }}>
+          {address ? (
+            <span role="menuitem" style={{ cursor: 'default', opacity: 0.7 }}>
+              {shortAddress(address)}
+            </span>
+          ) : null}
+          <Link role="menuitem" to="/connect">
+            Switch account
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={disconnect}
+            style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: 'inherit', textAlign: 'left', width: '100%', cursor: 'pointer' }}
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function DashboardHeader() {
   const pathname = useLocation().pathname ?? '/dashboard'
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -111,12 +210,7 @@ export function DashboardHeader() {
           <span className="ds-network" title="Creditcoin Testnet · Ethereum Sepolia">
             <span className="ds-dot" aria-hidden="true" /> Testnet
           </span>
-          <button type="button" className="ds-account">
-            <span className="ds-avatar" aria-hidden="true">
-              OP
-            </span>
-            <span>Account</span>
-          </button>
+          <AccountMenu />
           <button
             type="button"
             className="ds-menu-button"

@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 
 import { NAV_ITEMS, type NavItem } from '@/lib/handshake/navigation'
+import { isDemoAuthEnabled, setDemoAuthenticated } from '@/src/privy'
 
 /**
  * Top header navigation.
@@ -94,6 +95,65 @@ function shortAddress(address: string): string {
  * Disconnect clears the label and returns to the connect screen.
  */
 function AccountMenu() {
+  if (isDemoAuthEnabled()) return <DemoAccountMenu />
+  return <PrivyAccountMenu />
+}
+
+function DemoAccountMenu() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+  const pathname = useLocation().pathname
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  useEffect(() => setOpen(false), [pathname])
+
+  function disconnect() {
+    setOpen(false)
+    setDemoAuthenticated(false)
+    navigate('/connect')
+  }
+
+  return (
+    <div className="ds-nav-item" ref={ref} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        className="ds-nav-trigger ds-account"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((value) => !value)}
+        onMouseEnter={() => setOpen(true)}
+      >
+        <span className="ds-avatar" aria-hidden="true">DW</span>
+        <span>Demo wallet</span>
+        <ChevronDown size={9} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="ds-nav-menu" role="menu" style={{ left: 'auto', right: 0 }}>
+          <span role="menuitem" style={{ cursor: 'default', opacity: 0.7 }}>Demo wallet</span>
+          <button type="button" role="menuitem" onClick={disconnect}>Disconnect</button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PrivyAccountMenu() {
   const { user, logout } = usePrivy()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)

@@ -3,8 +3,48 @@ import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { Logo } from '@/components/handshake-app'
+import { isDemoAuthEnabled, setDemoAuthenticated } from '../privy'
 
 export function ConnectPage() {
+  if (isDemoAuthEnabled()) return <DemoConnectPage />
+  return <PrivyConnectPage />
+}
+
+function DemoConnectPage() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const destination = (location.state as { from?: string } | null)?.from ?? '/dashboard'
+
+  function connectDemoWallet() {
+    setDemoAuthenticated(true)
+    navigate(destination, { replace: true })
+  }
+
+  return (
+    <main className="auth-page">
+      <div className="auth-side">
+        <button onClick={() => navigate('/')} style={{ background: 'none', border: 0, padding: 0 }}>
+          <Logo />
+        </button>
+        <div className="auth-cross">×</div>
+        <span>Cross-chain DvP settlement on Creditcoin.</span>
+      </div>
+      <section className="auth-panel">
+        <div className="auth-form">
+          <h1>Connect wallet</h1>
+          <button className="connect-button" type="button" onClick={connectDemoWallet}>
+            Connect wallet
+          </button>
+          <div className="wallet-status">
+            <p className="wallet-hint">Demo authentication is enabled for this local preview.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function PrivyConnectPage() {
   const { ready, authenticated, login, user } = usePrivy()
   const navigate = useNavigate()
   const location = useLocation()

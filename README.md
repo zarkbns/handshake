@@ -121,7 +121,7 @@ Against the deployed public testnets (read-only checks — no keys needed):
 git clone https://github.com/zarkbns/handshake && cd handshake
 npm install && (cd web && npm install)   # deps
 git submodule update --init --recursive  # pinned forge-std (see foundry.lock)
-npm test                                 # 49 Solidity tests + script + web suites
+npm test                                 # 51 Solidity tests + script + web suites
 
 # Verify the live deployment is healthy (read-only, ~30s):
 export CREDITCOIN_RPC_URL=https://rpc.cc3-testnet.creditcoin.network
@@ -258,7 +258,7 @@ node scripts/keeper-timeouts.js             # move them to HELD
 
 ```
 src/           Solidity contracts (coordinator, verifier, locks, adapters)
-test/          Foundry test suites (49 tests) + Node script tests
+test/          Foundry test suites (51 tests) + Node script tests
 script/        Foundry deploy scripts (Creditcoin side, Ethereum side)
 scripts/       Live demo + relayer tooling (Node, ethers, USC SDK)
 web/           Read-only settlement dashboard (Vite + React)
